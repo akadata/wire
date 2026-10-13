@@ -143,7 +143,7 @@ matrix (1.66–1.72x). Raw tables: `perf_h324_normal.csv`,
 - Stack-overflow tally, updated: the intermittent `thread 'main' has
   overflowed its stack` abort in `v7_benchmark` (before any benchmark
   section, right after the probing banner) has now been seen **3 times in
-  ~60 v7 runs**: baseline-native, baseline-normal, and improved-native —
+  ~115 v7 runs**: baseline-native, baseline-normal, and improved-native —
   i.e. both code versions and both build modes. The executor rewrite is
   therefore ruled out as the cause; it is a pre-existing v7-harness flake
   (suspected oversized `main` frame under inlining; exact frame TBD,

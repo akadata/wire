@@ -61,6 +61,52 @@ Wire v7 is an ultra-low-latency, zero-kernel-syscall financial exchange dataplan
 
 ---
 
+## AKADATA Enhancements (Executor Correctness + Performance)
+
+On top of upstream Wire, AKADATA audited and improved the async executor
+(`wire-runtime`) and its benchmark harnesses (`v6_benchmark`,
+`v7_benchmark`). Upstream sections above are unchanged; what follows is what
+we found, what we changed, and what it honestly measures. Full charts,
+methodology, and raw per-run data: **[BENCHMARKS.md](BENCHMARKS.md)** and
+**`akadata-report/`**.
+
+**What was wrong.** The executor queue holds `MAX_TASKS = 4096` futures, but
+the old benchmark spawned 1,000,000 tasks, ignored the failed `spawn()`
+returns, and divided 1,000,000 by elapsed time — counting ~995,904 tasks
+that were never accepted (~244x inflation behind the old "202 Mops/s"
+headline). Separately, the executor itself dropped wakeups that arrived
+inside a task's own `poll` (parking the task forever) and paid an
+`io_uring_enter` syscall plus a thread-local guard pair every 64 tasks.
+
+**What we did.** (1) Honest accounting: 1M tasks in 1024-batches with full
+drains; every run must prove `attempted == accepted == completed ==
+1,000,000` with throughput/latency computed over *completed* work, or the
+binary prints `[FAIL]` and exits non-zero. (2) A `drain_all()` fast path —
+one guard + one ring submit per drain instead of ~16 of each per batch
+(15,632 → 977 syscalls per 1M tasks). (3) Inline task futures (one fewer
+alloc per spawn) and a wake-during-poll re-queue fix, with unit tests.
+
+**Why.** A benchmark that counts work it never did is advertising, not
+engineering — and once the numbers were honest, the syscall overhead was
+the obvious next target. Same work measured, less overhead paid.
+
+**What it affected.** Single-threaded `async {}` spawn+poll+completion went
+from **~15.5 to ~26.5 Mops/s (~66 ns → ~38 ns/task), ~1.7x**, reproduced
+across both benchmarks, both release and `target-cpu=native` builds, and
+two hugepage states. Nothing else changed behaviour: `run_single_tick()`
+keeps its API, `MAX_TASKS = 4096` is still enforced, and hugepages were
+shown *not* to move this benchmark (pure heap, no hugetlb).
+
+**How busy Homer was.** No quiet test bench: a shared i9-13900K workstation
+(125 GiB RAM, ~86% used, 7-day uptime, 29 users, load ~5–7 spiking to 38
+from a compute hog, an arcade session, Firefox, and the resident 63 GiB Egg
+VM we never touched). Hugepages: requested 1024 → granted 57; after VMs
+stopped, requested 4096 → granted 324 (fragmentation ceiling, no OOM risk
+taken). Every baseline-vs-improved pair ran back-to-back under the same
+load — that is what keeps a ~1.7x claim credible on a machine like this.
+
+---
+
 ## Dataplane Topology Diagram
 
 ```text
