@@ -11,7 +11,18 @@ Related: `BENCHMARKS.md` (benchmark honesty), `SIMD_AUDIT.md` (parser
 correctness proofs), `PERFORMANCE.md` (executor measurements),
 `C_VS_RUST.md` (abstraction cost).
 
+Classification: every item carries exactly one verdict —
+**PROVEN CORRECTNESS DEFECT** (coded behaviour read in source, demonstrated
+or directly demonstrated-able), **PROVEN REPRODUCIBILITY/CLAIM DEFECT**
+(a published claim that cannot be reproduced from the published evidence),
+**MISSING PRODUCTION SAFEGUARD** (functionality a money-handling system
+must have and this codebase does not), or **CORRECTED/RETRACTED FINDING**
+(an allegation we made, checked, and withdrew — kept on record so the
+audit's misses are as visible as its hits).
+
 ## F1 — Risk filter fails open on unknown symbols [CRITICAL]
+
+**Classification: PROVEN CORRECTNESS DEFECT.**
 
 `wire-risk/src/filter.rs:82-89`: when no limits are configured for an
 order's symbol, `check_order` counts a `Pass` and returns it. The order the
@@ -21,16 +32,13 @@ bypasses every limit in the file. Production risk systems default to deny;
 this one defaults to allow. Additionally, every limit is disabled by a zero
 value (`max_order_size`, `min_price`, `max_price`, `max_notional` each gated
 by `> 0`, lines 95/100/105/111), so a zero in configuration silently
-removes a control instead of blocking flow.
-
-Correction recorded honestly: an earlier draft of this audit alleged that
-`(shares as u64).wrapping_mul(price as u64)` (line 110) could silently
-overflow. It cannot — both operands are `u32`, and (2³²−1)² < u64::MAX, so
-the widened product always fits. `wrapping_mul` is sloppy intent that
-happens to be mathematically inert. The finding is withdrawn; the fail-open
-design above it stands and is the actual defect.
+removes a control instead of blocking flow. (An earlier draft also alleged
+a `wrapping_mul` overflow at line 110 — checked, mathematically impossible,
+formally withdrawn as item R1 below.)
 
 ## F2 — Order-book indexing collides at real volumes [CRITICAL]
+
+**Classification: PROVEN CORRECTNESS DEFECT.**
 
 `wire-exchange/src/lob.rs`: order state is keyed by
 `order_id & 65535` (lines 88, 118, 151, 181, 208) and price levels by
@@ -44,6 +52,8 @@ apart merge into one level's shares and count. There is no collision
 detection, no error, no log — state just becomes wrong.
 
 ## F3 — Best bid/offer goes stale and never recovers [CRITICAL]
+
+**Classification: PROVEN CORRECTNESS DEFECT.**
 
 `lob.rs` lines 134–136, 144–146, 164–166, 174–176, 194–196, 204–206: when
 the touch level fully fills, cancels, deletes, or is replaced away, the
@@ -60,6 +70,8 @@ the suite certifies none of this.
 
 ## F4 — Running parser emits wrong tuples marked valid [HIGH]
 
+**Classification: PROVEN CORRECTNESS DEFECT.**
+
 Proven by focused test (transcript in `SIMD_AUDIT.md` §3; scratch test
 deleted afterwards): on AVX2 machines — the path that actually executes —
 `parse_one_avx2` returns e.g. `aa:bb:08:00 : 8755 → 17493` with
@@ -72,6 +84,8 @@ ever comparing output, so the harness cannot see it.
 
 ## F5 — No sequence tracking anywhere in the market-data path [HIGH]
 
+**Classification: MISSING PRODUCTION SAFEGUARD.**
+
 ITCH `tracking_number` bytes are skipped by the scalar parser and the
 numbers live only as unread struct fields; no gap detection, no
 monotonicity check on timestamps, no resync path exists in the codebase
@@ -80,6 +94,11 @@ the book from the exchange permanently, silently, with no alert. For
 exchange feeds this alone disqualifies production use.
 
 ## F6 — WAL recovery voids ordering and loses data silently [HIGH]
+
+**Classification: PROVEN CORRECTNESS DEFECT.** (Sequence restart, silent
+truncation, and short-write loss are coded behaviours, not missing
+features; the unbounded-RAM replay noted below is additionally a missing
+safeguard).
 
 `wire-store/src/wal.rs`: `seq` restarts at 0 on every `open()` (line 59),
 so crash → reopen → continue appends duplicate sequence numbers over the
@@ -93,6 +112,11 @@ genuinely present — the ingredients are real, the guarantees are not.
 
 ## F7 — IPv6 validity depends on which CPU you own [MEDIUM]
 
+**Classification: PROVEN CORRECTNESS DEFECT.** (Identical wire bytes parse
+differently depending on the machine's SIMD flags — established by test on
+Homer plus offset-checked reading of the non-executable path; intent
+behind the truncation is not inferred).
+
 `PackedTuple` holds 4-byte addresses (IPv4-shaped by construction).
 Scalar and AVX2 paths reject IPv6 ethertype (proven); the AVX-512 path
 alone accepts it and stores the leading /32 of each 16-byte address into
@@ -104,10 +128,44 @@ not established and not inferred. Full detail: `SIMD_AUDIT.md` §4.
 
 ## F8 — AVX-512 feature gate does not cover its own requirements [MEDIUM]
 
+**Classification: PROVEN CORRECTNESS DEFECT.** (Latent: attribute/gate
+mismatch read directly in source; dormant only because current bodies emit
+F instructions).
+
 `#[target_feature(enable = "avx512f", "avx512bw", "avx512dq",
 "avx512vl")]` on functions gated at runtime by `avx512f` alone. On F-only
 silicon this is a latent illegal-instruction hazard (dormant only because
 current bodies emit F instructions). Full detail: `SIMD_AUDIT.md` §5.
+
+## R1 — Alleged `wrapping_mul` overflow [WITHDRAWN]
+
+**Classification: CORRECTED/RETRACTED FINDING.**
+
+An earlier draft of this audit alleged that
+`(event.shares as u64).wrapping_mul(event.price as u64)`
+(`wire-risk/src/filter.rs:110`) could silently overflow and slip a huge
+notional past `max_notional`. On checking: both operands are `u32`, and
+(2³²−1)² = 2⁶⁴−2³³+1 < u64::MAX, so the widened product always fits and
+the wrap path is unreachable. `wrapping_mul` remains sloppy intent, but
+the alleged defect does not exist. This item is kept on record — with the
+same prominence as the findings that stuck — because an audit that cannot
+show its retractions is marketing, not engineering. The fail-open design
+around it (F1) is unaffected and stands.
+
+## R2 — Published SIMD figures lack reproduction evidence [OPEN]
+
+**Classification: PROVEN REPRODUCIBILITY/CLAIM DEFECT.**
+
+The upstream README states "AVX-512 / AVX2 Enabled" but publishes no CPU
+model, no `lscpu`/CPUID flags, and no record of which dispatch branch
+produced each figure; v7's ITCH benchmark calls the dynamic dispatcher
+without reporting the path taken. AKADATA therefore cannot verify that any
+AVX-512-labelled figure was produced on an AVX-512 path — on Homer, those
+rows print N/A by the author's own gate. No fabrication is alleged; the
+defect is strictly that the evidence required to reproduce the claim was
+not published. Remedy (from `BENCHMARKS.md` §7.3): print CPU model, AVX2
+yes/no, AVX512F/BW/DQ/VL yes/no each, and the parser path actually taken
+with every SIMD row.
 
 ---
 
@@ -135,7 +193,7 @@ checkable was left out:
    money until its correctness core is rewritten.
 6. One allegation from our side is hereby withdrawn with the nose's
    compliments: `wrapping_mul` on two widened `u32`s cannot overflow, and
-   saying so was our error, corrected in F1 above. Facts cut both ways —
+   saying so was our error, corrected as item R1 above. Facts cut both ways —
    that is the whole point of an audit.
 
 Present state, honestly summarised: benchmarks fixed and faster, parsers
