@@ -202,54 +202,124 @@ Standalone write-up with SVG graphs: `akadata-report/C_VS_RUST.md`.
 
 ---
 
-## 7. SIMD audit: what "AVX-512 / AVX2 Enabled" actually means here
+## 7. SIMD implementation and reproducibility audit
 
-The author claims, under "Hardware Test Bench Context":
+The upstream README states, under "Hardware Test Bench Context":
 
 > CPU Host: x86_64 Architecture (AVX-512 / AVX2 Enabled)
 
-On Homer that claim is half false, and the code behind the true half is
-thinner than the labels suggest. All of the following was read out of the
-shipped source and measured on Homer (i9-13900K — AVX2 on all 32 CPUs, **no
-`avx512*` flag anywhere** in `/proc/cpuinfo`).
+Three separate questions follow. They are kept separate on purpose.
 
-**AVX-512: claimed, compiled in, never executed — and not vectorized.**
-Both v6 AVX-512 dashboard rows print `N/A / Host CPU (AVX2 Active)` on
-Homer, because the CPU lacks `avx512f` and the dispatch gates
-(`wire-echo/src/bin/v6_benchmark.rs:104`, `wire-simd/src/lib.rs:46`)
-correctly refuse to call it. The code ships (21 `zmm` register mentions in
-`target/release/v6_benchmark`), but on this machine every AVX-512 number in
-the author's tables has no Homer measurement behind it whatsoever.
-And the functions themselves are not vector parsers:
-`wire-simd/src/avx512.rs:13-15` performs exactly one `_mm512_loadu_si512`
-plus one `_mm512_storeu_si512` into a stack buffer, followed by ~160 lines
-of scalar byte indexing (`buf[12]`, `u16::from_be_bytes`, …) — a 64-byte
-`memcpy` with scalar parsing, zero vector ALU. Same pattern in the "AVX-512
-ITCH decoder" (`wire-exchange/src/itch.rs:235-237`: load, store, then
-scalar field extraction — and on Homer v7 necessarily takes the AVX2 or
-scalar path instead). Further defects in the same function: the
-`#[target_feature]` attribute demands `avx512bw+avx512dq+avx512vl`
-(`avx512.rs:6`) while the runtime gate checks only `avx512f`; the IPv6
-source/destination addresses are sliced from the middle of the 16-byte
-address (`avx512.rs:99-100`).
+### 7.1 What hardware path actually ran on Homer?
 
-**AVX2: genuinely executed — and ~4x slower than the scalar fallback.**
-`is_x86_feature_detected!("avx2")` is true, the benchmark calls
-`parse_one_avx2` directly (`v6_benchmark.rs:89`), and the binary contains
-real VEX code (`vpshufb` ×169). But "vectorized" here means one
-`_mm256_loadu_si256`, one `_mm256_shuffle_epi8`, scalar field parsing, and
-a scalar checksum loop — while the `_mm256_extract_*_unwrap` helpers
-(`wire-simd/src/avx2.rs:115-125`) are full-register stores to the stack
-followed by scalar array reads, i.e. store-forwarding roundtrips rather
-than extracts. Homer measured the outcome
-(`akadata-report/samples/v6_normal_sample.txt`):
+Homer is an i9-13900K: `avx2` present on all 32 CPUs, **no `avx512*` flag
+anywhere** in `/proc/cpuinfo`. The dispatch gates
+(`wire-simd/src/lib.rs:46,52`, `wire-exchange/src/itch.rs:261,269`,
+`wire-echo/src/bin/v6_benchmark.rs:89,104`) therefore resolve as follows:
+
+- AVX2: **supported and executed.** The v6 benchmark calls
+  `parse_one_avx2` directly and measures it; the binary contains real VEX
+  code (`vpshufb` ×169 in `target/release/v6_benchmark`).
+- AVX-512: **unsupported; the benchmark prints N/A.** Both v6 AVX-512 rows
+  report `N/A / Host CPU (AVX2 Active)`. The code is compiled in (21 `zmm`
+  mentions in the binary) but the dispatcher rejects it, so no AVX-512
+  instruction from this codebase executes on Homer.
+
+Measured Homer inversion (`akadata-report/samples/v6_normal_sample.txt`):
 
 ```text
  Scalar Fallback Parser         228.91 Mpps    13.11 cycles / packet
  AVX2 Vector Parser (256-bit)    57.99 Mpps    51.73 cycles / packet
 ```
 
-The "vector" path costs ~4x the fallback it claims to accelerate — on the
-author's own harness, on our machine. "AVX2 used" is true; "AVX2 faster" is
-measured false here, and every AVX-512 rate in the author's tables is
-unverifiable on AVX2-only silicon by construction.
+Therefore on Homer: **the AVX2 path is ≈4x slower than the scalar path.**
+That result is not generalised to all CPUs — it is a Homer measurement on
+this silicon — but it is the most interesting finding here: not merely
+"Homer lacks AVX-512", but the SIMD path we *can* execute loses badly to
+scalar, which says there is another genuine optimization project sitting
+there (see §7.2 for why).
+
+### 7.2 What does the code labelled AVX2/AVX-512 actually vectorize?
+
+AVX2 (`wire-simd/src/avx2.rs`):
+
+- vector load (`_mm256_loadu_si256`),
+- vector shuffle (`_mm256_shuffle_epi8`),
+- store/extract back through memory (the `_mm256_extract_*_unwrap`
+  helpers at `avx2.rs:115-125` are full-register stores to the stack
+  followed by scalar array reads — store-forwarding roundtrips, not
+  extracts),
+- predominantly scalar field decoding afterwards (checksum loop, TCP
+  fields, length checks all scalar).
+
+AVX-512 (`wire-simd/src/avx512.rs`, `wire-exchange/src/itch.rs:230-237`):
+
+- one 512-bit load (`_mm512_loadu_si512`),
+- one 512-bit store to local storage (`_mm512_storeu_si512`),
+- scalar byte/index extraction afterwards (the entire parse body).
+
+Stated plainly: the current implementation uses vector registers, but
+calling it a fully vectorized parser/decoder overstates what the code is
+doing. **There is effectively no vector ALU decoding pipeline after the
+wide load.** The v7 ITCH "vector parser" is the same shape — one wide
+load, one wide store, scalar field extraction.
+
+### 7.3 What can/cannot be established about the author's benchmark machine?
+
+The upstream README states "AVX-512 / AVX2 Enabled", but does not publish
+the CPU model, lscpu flags, CPUID output, or selected runtime dispatch
+path. Therefore AKADATA cannot independently verify that the published
+AVX-512-labelled figures were produced on an AVX-512 path. Note also that
+v7's ITCH benchmark calls the dynamic dispatcher (`itch.rs:257-281`) and
+does not report whether AVX-512, AVX2 or scalar actually handled the
+measured workload. No accusation is made that results were fabricated; the
+point is strictly reproducibility: the evidence needed to reproduce the
+claim was not published.
+
+Reproducibility recommendation — every SIMD benchmark row should print:
+
+- CPU model
+- AVX2 yes/no
+- AVX512F/BW/DQ/VL yes/no (each level separately)
+- selected parser path (the branch actually taken)
+
+Then there is no ambiguity.
+
+### 7.4 Verdict table
+
+| Claim                         | Homer evidence             | Verdict                  |
+| :---                          | :---                       | :---                     |
+| AVX2 enabled                  | yes                        | proven                   |
+| AVX2 faster                   | no                         | ~4x slower here          |
+| AVX-512 enabled on Homer      | no                         | impossible               |
+| AVX-512 code compiled         | yes                        | proven                   |
+| AVX-512 executed on Homer     | no                         | dispatch rejects         |
+| upstream AVX-512 host         | undocumented               | unverified               |
+| fully vectorized decoder      | no                         | wide load + scalar extraction |
+
+### 7.5 Correctness findings (proven by focused test, code unchanged)
+
+Two dispatch-dependent divergences were proven with a throwaway integration
+test (same input frames, all three paths, run on Homer; the scratch test
+was deleted afterwards — **no SIMD code was changed**):
+
+1. **AVX2 shuffle-lane divergence (runs on Homer).** `_mm256_shuffle_epi8`
+   operates per 128-bit lane, but `ETH_TCP_SHUFFLE_OCTETS`
+   (`wire-simd/src/masks.rs`) places indices 26–38 in output positions
+   0–12, i.e. in lane 0, so they wrap to input bytes 10–22. Measured on one
+   valid IPv4 frame: scalar reports the correct tuple
+   (`10.0.0.1 → 10.0.0.2 : 12345 → 80`, valid), while AVX2 reports
+   (`aa:bb:08:00 → … : 8755 → 17493`, valid) — MAC bytes as IPs/ports.
+   Both claim `valid=true`; the benchmark times the path without ever
+   comparing results. Full transcript: `akadata-report/SIMD_AUDIT.md` §3.
+2. **IPv6 validity depends on the CPU path.** `PackedTuple` holds 4-byte
+   address fields (an IPv4-shaped representation), and the scalar and AVX2
+   paths reject IPv6 ethertype outright (proven: all return invalid on an
+   IPv6/TCP frame). The AVX-512 path alone accepts IPv6 and stores
+   `buf[22..26]` / `buf[38..42]` — the leading /32 of each 16-byte address
+   — into those 4-byte fields (established by code reading; the path
+   cannot execute on Homer). Whether that truncation is intentional
+   aliasing or simply wrong offsets is **not established: intent is not
+   inferred from the code.** What is established is the observable fact:
+   identical IPv6 input is invalid on Homer and valid-with-truncation on an
+   AVX-512 machine. Full detail: `akadata-report/SIMD_AUDIT.md` §4.
