@@ -1,23 +1,19 @@
 use std::collections::HashMap;
 use crate::resp::{Command, RespParser};
-
 pub struct ShardKvStore {
     store: HashMap<Vec<u8>, Vec<u8>>,
 }
-
 impl Default for ShardKvStore {
     fn default() -> Self {
         Self::new()
     }
 }
-
 impl ShardKvStore {
     pub fn new() -> Self {
         Self {
             store: HashMap::with_capacity(16384),
         }
     }
-
     pub fn execute(&mut self, cmd: &Command<'_>, out: &mut Vec<u8>) {
         match cmd {
             Command::Ping => {
@@ -45,31 +41,24 @@ impl ShardKvStore {
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn kv_store_lifecycle() {
         let mut kv = ShardKvStore::new();
         let mut out = Vec::new();
-
         kv.execute(&Command::Set(b"name", b"wire"), &mut out);
         assert_eq!(out, b"+OK\r\n");
-
         out.clear();
         kv.execute(&Command::Get(b"name"), &mut out);
         assert_eq!(out, b"$4\r\nwire\r\n");
-
         out.clear();
         kv.execute(&Command::Exists(b"name"), &mut out);
         assert_eq!(out, b":1\r\n");
-
         out.clear();
         kv.execute(&Command::Del(b"name"), &mut out);
         assert_eq!(out, b":1\r\n");
-
         out.clear();
         kv.execute(&Command::Get(b"name"), &mut out);
         assert_eq!(out, b"$-1\r\n");

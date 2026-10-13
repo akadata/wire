@@ -13,8 +13,14 @@ wire-sim = { path = "../wire-sim" }
 wire-tap = { path = "../wire-tap" }
 wire-quic = { path = "../wire-quic" }
 wire-runtime = { path = "../wire-runtime" }
+wire-disruptor = { path = "../wire-disruptor" }
+wire-exchange = { path = "../wire-exchange" }
+wire-dma = { path = "../wire-dma" }
+wire-risk = { path = "../wire-risk" }
+wire-ptp = { path = "../wire-ptp" }
 anyhow = "1.0"
 libc = "0.2"
+io-uring = "0.6"
 rustls = { workspace = true, features = ["ring", "std"] }
 tracing-subscriber = { workspace = true }
 

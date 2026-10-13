@@ -1,7 +1,6 @@
 use crate::conntable::ConnTable;
 use crate::{Ipv4Address, MacAddress, SocketTuple, TcpConnection};
 use std::collections::VecDeque;
-
 pub struct StackShard {
     pub shard_id: usize,
     pub mac: MacAddress,
@@ -10,7 +9,6 @@ pub struct StackShard {
     pub connections: ConnTable<SocketTuple, TcpConnection>,
     pub tx_queue: VecDeque<Vec<u8>>,
 }
-
 impl StackShard {
     pub fn new(shard_id: usize, mac: MacAddress, ip: Ipv4Address, gateway_ip: Ipv4Address, max_conns: usize) -> Self {
         Self {
@@ -22,7 +20,6 @@ impl StackShard {
             tx_queue: VecDeque::new(),
         }
     }
-
     #[inline(always)]
     pub fn handles_flow(&self, tuple: &SocketTuple, num_shards: usize) -> bool {
         let mut hash = 17u32;

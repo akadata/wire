@@ -2,7 +2,6 @@
 pub mod probes {
     use std::cell::RefCell;
     use std::sync::OnceLock;
-
     #[repr(u8)]
     #[derive(Clone, Copy, Debug)]
     pub enum StageId {
@@ -20,10 +19,15 @@ pub mod probes {
         TotalPacket = 11,
         SimdParse = 12,
         SimdParseBatch = 13,
+        DisruptorPublish = 14,
+        DisruptorConsume = 15,
+        ItchParse = 16,
+        FixParse = 17,
+        LobUpdate = 18,
+        XdpRiskFilter = 19,
+        PtpTimestamp = 20,
     }
-
-    pub const NUM_STAGES: usize = 14;
-
+    pub const NUM_STAGES: usize = 21;
     pub const STAGE_NAMES: [&str; NUM_STAGES] = [
         "RX_RING_ACQUIRE",
         "L2_PARSE",
@@ -39,8 +43,14 @@ pub mod probes {
         "TOTAL_PACKET",
         "SIMD_PARSE",
         "SIMD_PARSE_BATCH",
+        "DISRUPTOR_PUBLISH",
+        "DISRUPTOR_CONSUME",
+        "ITCH_PARSE",
+        "FIX_PARSE",
+        "LOB_UPDATE",
+        "XDP_RISK_FILTER",
+        "PTP_TIMESTAMP",
     ];
-
     #[derive(Clone, Copy, Default, Debug)]
     pub struct StageStats {
         pub count: u64,
@@ -48,18 +58,14 @@ pub mod probes {
         pub min_cycles: u64,
         pub max_cycles: u64,
     }
-
     thread_local! {
         static STATS: RefCell<[StageStats; NUM_STAGES]> = RefCell::new([StageStats::default(); NUM_STAGES]);
         static SAMPLE_COUNTER: RefCell<u64> = RefCell::new(0);
     }
-
     static SAMPLE_RATE: OnceLock<u64> = OnceLock::new();
-
     pub fn set_sample_rate(rate: u64) {
         let _ = SAMPLE_RATE.set(rate);
     }
-
     #[inline(always)]
     pub fn rdtsc() -> u64 {
         #[cfg(target_arch = "x86_64")]
@@ -70,7 +76,6 @@ pub mod probes {
             Instant::now().elapsed().as_nanos() as u64
         }
     }
-
     #[inline(always)]
     pub fn should_sample() -> bool {
         let rate = *SAMPLE_RATE.get().unwrap_or(&1);
@@ -81,13 +86,11 @@ pub mod probes {
             *v % rate == 0
         })
     }
-
     #[inline(always)]
     pub fn stage_begin(_id: StageId) -> u64 {
         if !should_sample() { return 0; }
         rdtsc()
     }
-
     #[inline(always)]
     pub fn stage_end(id: StageId, start: u64) {
         if start == 0 { return; }
@@ -105,18 +108,15 @@ pub mod probes {
             }
         });
     }
-
     pub fn snapshot() -> [StageStats; NUM_STAGES] {
         STATS.with(|s| *s.borrow())
     }
-
     pub fn reset() {
         STATS.with(|s| {
             *s.borrow_mut() = [StageStats::default(); NUM_STAGES];
         });
     }
 }
-
 #[cfg(not(feature = "profile"))]
 pub mod probes {
     #[repr(u8)]
@@ -136,10 +136,15 @@ pub mod probes {
         TotalPacket = 11,
         SimdParse = 12,
         SimdParseBatch = 13,
+        DisruptorPublish = 14,
+        DisruptorConsume = 15,
+        ItchParse = 16,
+        FixParse = 17,
+        LobUpdate = 18,
+        XdpRiskFilter = 19,
+        PtpTimestamp = 20,
     }
-
-    pub const NUM_STAGES: usize = 14;
-
+    pub const NUM_STAGES: usize = 21;
     pub const STAGE_NAMES: [&str; NUM_STAGES] = [
         "RX_RING_ACQUIRE",
         "L2_PARSE",
@@ -155,8 +160,14 @@ pub mod probes {
         "TOTAL_PACKET",
         "SIMD_PARSE",
         "SIMD_PARSE_BATCH",
+        "DISRUPTOR_PUBLISH",
+        "DISRUPTOR_CONSUME",
+        "ITCH_PARSE",
+        "FIX_PARSE",
+        "LOB_UPDATE",
+        "XDP_RISK_FILTER",
+        "PTP_TIMESTAMP",
     ];
-
     #[derive(Clone, Copy, Default, Debug)]
     pub struct StageStats {
         pub count: u64,
@@ -164,7 +175,6 @@ pub mod probes {
         pub min_cycles: u64,
         pub max_cycles: u64,
     }
-
     #[inline(always)]
     pub fn rdtsc() -> u64 {
         #[cfg(target_arch = "x86_64")]
@@ -175,17 +185,12 @@ pub mod probes {
             Instant::now().elapsed().as_nanos() as u64
         }
     }
-
     #[inline(always)]
     pub fn stage_begin(_id: StageId) -> u64 { 0 }
-
     #[inline(always)]
     pub fn stage_end(_id: StageId, _start: u64) {}
-
     pub fn set_sample_rate(_rate: u64) {}
-
     pub fn reset() {}
-
     pub fn snapshot() -> [StageStats; NUM_STAGES] {
         [StageStats::default(); NUM_STAGES]
     }

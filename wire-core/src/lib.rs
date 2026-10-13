@@ -6,44 +6,34 @@ pub mod cacheline;
 pub mod resp;
 pub mod kv;
 pub use profile::probes;
-
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacAddress(pub [u8; 6]);
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Ipv4Address(pub [u8; 4]);
-
 impl From<Ipv4Addr> for Ipv4Address {
     fn from(addr: Ipv4Addr) -> Self {
         Self(addr.octets())
     }
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Seq(pub u32);
-
 impl Seq {
     pub fn wrapping_add(self, val: u32) -> Self {
         Seq(self.0.wrapping_add(val))
     }
-
     pub fn wrapping_sub(self, val: Seq) -> u32 {
         self.0.wrapping_sub(val.0)
     }
-
     pub fn lt(self, other: Seq) -> bool {
         (self.0.wrapping_sub(other.0) as i32) < 0
     }
-
     pub fn lte(self, other: Seq) -> bool {
         self == other || self.lt(other)
     }
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TcpState {
     Closed,
@@ -58,7 +48,6 @@ pub enum TcpState {
     LastAck,
     TimeWait,
 }
-
 bitflags::bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct TcpFlags: u8 {
@@ -70,7 +59,6 @@ bitflags::bitflags! {
         const URG = 0x20;
     }
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TcpOption {
     Mss(u16),
@@ -80,7 +68,6 @@ pub enum TcpOption {
     Timestamp { tsval: u32, tsecr: u32 },
     Nop,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UdpTuple {
     pub local_ip: Ipv4Address,
@@ -88,7 +75,6 @@ pub struct UdpTuple {
     pub remote_ip: Ipv4Address,
     pub remote_port: u16,
 }
-
 #[derive(Debug)]
 pub struct UdpHeader {
     pub src_port: u16,
@@ -96,7 +82,6 @@ pub struct UdpHeader {
     pub length: u16,
     pub checksum: u16,
 }
-
 impl UdpHeader {
     pub fn parse(buf: &[u8]) -> Option<(Self, &[u8])> {
         if buf.len() < 8 { return None; }
@@ -107,7 +92,6 @@ impl UdpHeader {
         if buf.len() < length as usize || length < 8 { return None; }
         Some((UdpHeader { src_port, dst_port, length, checksum }, &buf[8..length as usize]))
     }
-
     pub fn serialize(&self) -> [u8; 8] {
         let mut buf = [0u8; 8];
         buf[0..2].copy_from_slice(&self.src_port.to_be_bytes());
@@ -117,7 +101,6 @@ impl UdpHeader {
         buf
     }
 }
-
 pub fn checksum(data: &[u8]) -> u16 {
     let mut sum: u32 = 0;
     for chunk in data.chunks(2) {
@@ -133,7 +116,6 @@ pub fn checksum(data: &[u8]) -> u16 {
     }
     !(sum as u16)
 }
-
 pub fn tcp_checksum(src: Ipv4Address, dst: Ipv4Address, tcp_segment: &[u8]) -> u16 {
     let mut pseudo_hdr = Vec::with_capacity(12 + tcp_segment.len());
     pseudo_hdr.extend_from_slice(&src.0);
@@ -144,7 +126,6 @@ pub fn tcp_checksum(src: Ipv4Address, dst: Ipv4Address, tcp_segment: &[u8]) -> u
     pseudo_hdr.extend_from_slice(tcp_segment);
     checksum(&pseudo_hdr)
 }
-
 pub fn udp_checksum(src: Ipv4Address, dst: Ipv4Address, udp_segment: &[u8]) -> u16 {
     let mut pseudo_hdr = Vec::with_capacity(12 + udp_segment.len());
     pseudo_hdr.extend_from_slice(&src.0);
@@ -156,7 +137,6 @@ pub fn udp_checksum(src: Ipv4Address, dst: Ipv4Address, udp_segment: &[u8]) -> u
     let res = checksum(&pseudo_hdr);
     if res == 0 { 0xFFFF } else { res }
 }
-
 pub fn build_dns_query(hostname: &str, tx_id: u16) -> Vec<u8> {
     let mut pkt = Vec::new();
     pkt.extend_from_slice(&tx_id.to_be_bytes());
@@ -165,7 +145,6 @@ pub fn build_dns_query(hostname: &str, tx_id: u16) -> Vec<u8> {
     pkt.extend_from_slice(&0u16.to_be_bytes());
     pkt.extend_from_slice(&0u16.to_be_bytes());
     pkt.extend_from_slice(&0u16.to_be_bytes());
-
     for label in hostname.split('.') {
         pkt.push(label.len() as u8);
         pkt.extend_from_slice(label.as_bytes());
@@ -175,18 +154,15 @@ pub fn build_dns_query(hostname: &str, tx_id: u16) -> Vec<u8> {
     pkt.extend_from_slice(&1u16.to_be_bytes());
     pkt
 }
-
 pub fn parse_dns_response(buf: &[u8]) -> Option<Ipv4Address> {
     if buf.len() < 12 { return None; }
     let ancount = u16::from_be_bytes([buf[6], buf[7]]);
     if ancount == 0 { return None; }
-
     let mut idx = 12;
     while idx < buf.len() && buf[idx] != 0 {
         idx += (buf[idx] as usize) + 1;
     }
     idx += 5;
-
     for _ in 0..ancount {
         if idx >= buf.len() { break; }
         if (buf[idx] & 0xC0) == 0xC0 {
@@ -208,7 +184,6 @@ pub fn parse_dns_response(buf: &[u8]) -> Option<Ipv4Address> {
     }
     None
 }
-
 #[derive(Debug)]
 pub struct TcpHeader {
     pub src_port: u16,
@@ -221,7 +196,6 @@ pub struct TcpHeader {
     pub checksum: u16,
     pub options: Vec<TcpOption>,
 }
-
 impl TcpHeader {
     pub fn parse(buf: &[u8]) -> Option<(Self, &[u8])> {
         if buf.len() < 20 { return None; }
@@ -234,9 +208,7 @@ impl TcpHeader {
         let flags = TcpFlags::from_bits_retain(buf[13]);
         let window = u16::from_be_bytes([buf[14], buf[15]]);
         let checksum = u16::from_be_bytes([buf[16], buf[17]]);
-
         if data_offset_bytes < 20 || buf.len() < data_offset_bytes { return None; }
-        
         let mut options = Vec::new();
         if data_offset_bytes > 20 {
             let opt_len = data_offset_bytes - 20;
@@ -293,12 +265,10 @@ impl TcpHeader {
                 i += len;
             }
         }
-
         Some((TcpHeader {
             src_port, dst_port, seq, ack, data_offset: data_offset_words, flags, window, checksum, options,
         }, &buf[data_offset_bytes..]))
     }
-
     pub fn serialize(&self) -> Vec<u8> {
         let mut opt_buf = Vec::new();
         for opt in &self.options {
@@ -338,7 +308,6 @@ impl TcpHeader {
         while opt_buf.len() % 4 != 0 {
             opt_buf.push(0);
         }
-
         let data_offset = 5 + (opt_buf.len() / 4) as u8;
         let mut buf = vec![0u8; 20];
         buf[0..2].copy_from_slice(&self.src_port.to_be_bytes());
@@ -352,7 +321,6 @@ impl TcpHeader {
         buf
     }
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SocketTuple {
     pub local_ip: Ipv4Address,
@@ -360,7 +328,6 @@ pub struct SocketTuple {
     pub remote_ip: Ipv4Address,
     pub remote_port: u16,
 }
-
 pub struct SentSegment {
     pub seq: Seq,
     pub seq_len: u32,
@@ -371,7 +338,6 @@ pub struct SentSegment {
     pub lost: bool,
     pub delivered_at_send: u64,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BbrState {
     Startup,
@@ -379,7 +345,6 @@ pub enum BbrState {
     ProbeBw,
     ProbeRtt,
 }
-
 pub struct TcpConnection {
     pub tuple: SocketTuple,
     pub state: TcpState,
@@ -395,7 +360,6 @@ pub struct TcpConnection {
     pub out_of_order: BTreeMap<u32, Vec<u8>>,
     pub send_buffer: VecDeque<u8>,
     pub receive_buffer: VecDeque<u8>,
-    
     pub cwnd: u32,
     pub ssthresh: u32,
     pub dup_ack_count: u8,
@@ -413,13 +377,11 @@ pub struct TcpConnection {
     pub base_time: Instant,
     pub fin_requested: bool,
     pub sack_scoreboard: Vec<(Seq, Seq)>,
-
     pub in_recovery_episode: bool,
     pub recovery_point: Seq,
     pub high_ack: Seq,
     pub pipe: u32,
     pub rescue_rx: Option<Seq>,
-
     pub bbr_state: BbrState,
     pub bbr_pacing_gain: f64,
     pub bbr_cwnd_gain: f64,
@@ -434,7 +396,6 @@ pub struct TcpConnection {
     pub bbr_full_bw_count: usize,
     pub bbr_next_pacing_time: Instant,
 }
-
 pub struct Stack {
     pub mac: MacAddress,
     pub ip: Ipv4Address,
@@ -446,7 +407,6 @@ pub struct Stack {
     pub tx_queue: VecDeque<Vec<u8>>,
     isn_counter: u32,
 }
-
 impl Stack {
     pub fn new(mac: MacAddress, ip: Ipv4Address, gateway_ip: Ipv4Address) -> Self {
         Self {
@@ -459,16 +419,13 @@ impl Stack {
             isn_counter: 21245643,
         }
     }
-
     pub fn listen(&mut self, port: u16) {
         self.listening_ports.insert(port, TcpState::Listen);
     }
-
     fn generate_isn(&mut self) -> Seq {
         self.isn_counter = self.isn_counter.wrapping_add(1043);
         Seq(self.isn_counter)
     }
-
     pub fn udp_send(&mut self, remote_ip: Ipv4Address, remote_port: u16, local_port: u16, payload: &[u8]) {
         let length = (8 + payload.len()) as u16;
         let mut udp_seg = vec![0u8; length as usize];
@@ -479,11 +436,9 @@ impl Stack {
         udp_seg[8..].copy_from_slice(payload);
         let csum = udp_checksum(self.ip, remote_ip, &udp_seg);
         udp_seg[6..8].copy_from_slice(&csum.to_be_bytes());
-
         let frame = self.encapsulate_ipv4_udp(self.ip, remote_ip, udp_seg);
         self.tx_queue.push_back(frame);
     }
-
     pub fn udp_recv(&mut self, local_port: u16) -> Option<(Ipv4Address, u16, Vec<u8>)> {
         for (tuple, queue) in self.udp_inbox.iter_mut() {
             if tuple.local_port == local_port {
@@ -494,7 +449,6 @@ impl Stack {
         }
         None
     }
-
     pub fn tcp_connect(&mut self, remote_ip: Ipv4Address, remote_port: u16, local_port: u16, now: Instant) -> SocketTuple {
         let tuple = SocketTuple {
             local_ip: self.ip,
@@ -533,13 +487,11 @@ impl Stack {
         self.connections.insert(tuple, conn);
         tuple
     }
-
     pub fn tcp_send(&mut self, tuple: SocketTuple, data: &[u8]) {
         if let Some(conn) = self.connections.get_mut_by_key(&tuple) {
             conn.send_buffer.extend(data);
         }
     }
-
     pub fn tcp_recv(&mut self, tuple: SocketTuple) -> Vec<u8> {
         if let Some(conn) = self.connections.get_mut_by_key(&tuple) {
             conn.receive_buffer.drain(..).collect()
@@ -547,22 +499,18 @@ impl Stack {
             Vec::new()
         }
     }
-
     pub fn tcp_close(&mut self, tuple: SocketTuple, now: Instant) {
         if let Some(conn) = self.connections.get_mut_by_key(&tuple) {
             conn.fin_requested = true;
             conn.flush_send_buffer(&mut self.tx_queue, now);
         }
     }
-
     pub fn active_connections(&self) -> Vec<SocketTuple> {
         self.connections.keys().copied().collect()
     }
-
     pub fn connection_state(&self, tuple: SocketTuple) -> Option<TcpState> {
         self.connections.get_by_key(&tuple).map(|c| c.state)
     }
-
     pub fn flush(&mut self, now: Instant) {
         let tuples: Vec<_> = self.connections.keys().copied().collect();
         for tuple in tuples {
@@ -571,7 +519,6 @@ impl Stack {
             }
         }
     }
-
     pub fn on_packet(&mut self, frame: &[u8], now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::TotalPacket);
         let _guard = scopeguard_end(probes::StageId::TotalPacket, __probe_start);
@@ -579,18 +526,15 @@ impl Stack {
         let dst_mac = MacAddress(frame[0..6].try_into().unwrap());
         let src_mac = MacAddress(frame[6..12].try_into().unwrap());
         let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
-
         if dst_mac != self.mac && dst_mac != MacAddress([0xff; 6]) {
             return;
         }
-
         match ethertype {
             0x0806 => self.handle_arp(frame, src_mac),
             0x0800 => self.handle_ipv4(frame, src_mac, now),
             _ => {}
         }
     }
-
     pub fn on_tick(&mut self, now: Instant) {
         let tuples: Vec<_> = self.connections.keys().copied().collect();
         for tuple in tuples {
@@ -603,7 +547,6 @@ impl Stack {
             }
         }
     }
-
     fn handle_arp(&mut self, frame: &[u8], src_mac: MacAddress) {
         if frame.len() < 42 { return; }
         let target_ip = Ipv4Address(frame[38..42].try_into().unwrap());
@@ -625,7 +568,6 @@ impl Stack {
         reply[38..42].copy_from_slice(&sender_ip.0);
         self.tx_queue.push_back(reply);
     }
-
     fn handle_ipv4(&mut self, frame: &[u8], src_mac: MacAddress, now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::L3Parse);
         let _guard = scopeguard_end(probes::StageId::L3Parse, __probe_start);
@@ -638,38 +580,31 @@ impl Stack {
         if dst_ip != self.ip { return; }
         if checksum(&frame[14..14 + ihl]) != 0 { return; }
         self.arp_cache.insert(src_ip, src_mac);
-
         let transport_start = 14 + ihl;
         let transport_end = 14 + total_len;
         if frame.len() < transport_end { return; }
-
         if protocol == 6 {
             self.handle_tcp(src_ip, dst_ip, &frame[transport_start..transport_end], now);
         } else if protocol == 17 {
             self.handle_udp(src_ip, dst_ip, &frame[transport_start..transport_end]);
         }
     }
-
     fn handle_udp(&mut self, src_ip: Ipv4Address, dst_ip: Ipv4Address, udp_segment: &[u8]) {
         let (hdr, payload) = match UdpHeader::parse(udp_segment) {
             Some(res) => res,
             None => return,
         };
-
         if hdr.checksum != 0 && udp_checksum(src_ip, dst_ip, udp_segment) != 0 {
             return;
         }
-
         let tuple = UdpTuple {
             local_ip: dst_ip,
             local_port: hdr.dst_port,
             remote_ip: src_ip,
             remote_port: hdr.src_port,
         };
-
         self.udp_inbox.entry(tuple).or_default().push_back(payload.to_vec());
     }
-
     fn handle_tcp(&mut self, src_ip: Ipv4Address, dst_ip: Ipv4Address, tcp_segment: &[u8], now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::L4Demux);
         let _guard = scopeguard_end(probes::StageId::L4Demux, __probe_start);
@@ -699,7 +634,6 @@ impl Stack {
             self.send_rst(dst_ip, src_ip, hdr);
         }
     }
-
     pub fn send_arp_request(&mut self, target_ip: Ipv4Address) {
         let mut req = vec![0u8; 42];
         req[0..6].copy_from_slice(&[0xff; 6]);
@@ -716,13 +650,11 @@ impl Stack {
         req[38..42].copy_from_slice(&target_ip.0);
         self.tx_queue.push_back(req);
     }
-
     pub fn is_same_subnet(&self, other_ip: Ipv4Address) -> bool {
         self.ip.0[0] == other_ip.0[0]
             && self.ip.0[1] == other_ip.0[1]
             && self.ip.0[2] == other_ip.0[2]
     }
-
     pub fn resolve_and_populate_dst_mac(&mut self, packet: &mut [u8]) {
         if packet.len() >= 34 {
             let ethertype = u16::from_be_bytes([packet[12], packet[13]]);
@@ -733,7 +665,6 @@ impl Stack {
                 } else {
                     self.gateway_ip
                 };
-
                 if let Some(mac) = self.arp_cache.get(&next_hop_ip) {
                     packet[0..6].copy_from_slice(&mac.0);
                 } else {
@@ -742,7 +673,6 @@ impl Stack {
             }
         }
     }
-
     fn send_rst(&mut self, local_ip: Ipv4Address, remote_ip: Ipv4Address, bad_hdr: TcpHeader) {
         if bad_hdr.flags.contains(TcpFlags::RST) { return; }
         let rst_seq = if bad_hdr.flags.contains(TcpFlags::ACK) { bad_hdr.ack } else { Seq(0) };
@@ -762,7 +692,6 @@ impl Stack {
         let frame = self.encapsulate_ipv4_tcp(local_ip, remote_ip, reply_bytes);
         self.tx_queue.push_back(frame);
     }
-
     fn encapsulate_ipv4_tcp(&mut self, src_ip: Ipv4Address, dst_ip: Ipv4Address, tcp_bytes: Vec<u8>) -> Vec<u8> {
         let mut frame = vec![0u8; 14 + 20 + tcp_bytes.len()];
         let dst_mac = self.arp_cache.get(&dst_ip).cloned().unwrap_or(MacAddress([0xff; 6]));
@@ -785,7 +714,6 @@ impl Stack {
         frame[34..].copy_from_slice(&tcp_bytes);
         frame
     }
-
     fn encapsulate_ipv4_udp(&mut self, src_ip: Ipv4Address, dst_ip: Ipv4Address, udp_bytes: Vec<u8>) -> Vec<u8> {
         let mut frame = vec![0u8; 14 + 20 + udp_bytes.len()];
         let dst_mac = self.arp_cache.get(&dst_ip).cloned().unwrap_or(MacAddress([0xff; 6]));
@@ -809,7 +737,6 @@ impl Stack {
         frame
     }
 }
-
 impl TcpConnection {
     pub fn new(tuple: SocketTuple, state: TcpState, local_mac: MacAddress, iss: Seq, irs: Seq, now: Instant) -> Self {
         Self {
@@ -834,13 +761,11 @@ impl TcpConnection {
             base_time: now,
             fin_requested: false,
             sack_scoreboard: Vec::new(),
-            
             in_recovery_episode: false,
             recovery_point: iss,
             high_ack: iss,
             pipe: 0,
             rescue_rx: None,
-
             bbr_state: BbrState::Startup,
             bbr_pacing_gain: 2.89,
             bbr_cwnd_gain: 2.89,
@@ -856,22 +781,17 @@ impl TcpConnection {
             bbr_next_pacing_time: now,
         }
     }
-
     pub fn current_ts(&self, now: Instant) -> u32 {
         (now.duration_since(self.base_time).as_millis() as u32).wrapping_add(1000)
     }
-
     pub fn generate_sack_blocks(&self) -> Vec<(Seq, Seq)> {
         let mut blocks = Vec::new();
         if self.out_of_order.is_empty() { return blocks; }
-
         let mut start = None;
         let mut end = None;
-
         for (&seq, payload) in &self.out_of_order {
             let block_start = Seq(seq);
             let block_end = block_start.wrapping_add(payload.len() as u32);
-
             match (start, end) {
                 (None, None) => {
                     start = Some(block_start);
@@ -896,7 +816,6 @@ impl TcpConnection {
         }
         blocks
     }
-
     pub fn negotiate_options(&mut self, hdr: &TcpHeader) {
         let mut peer_wscale_found = false;
         for opt in &hdr.options {
@@ -918,7 +837,6 @@ impl TcpConnection {
             self.our_wscale = None;
         }
     }
-
     fn send_syn_ack(&mut self, tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         let mut options = vec![TcpOption::Mss(self.mss)];
         if let Some(scale) = self.our_wscale {
@@ -931,7 +849,6 @@ impl TcpConnection {
             let tsval = self.current_ts(now);
             options.push(TcpOption::Timestamp { tsval, tsecr: self.last_peer_tsval });
         }
-
         let hdr = TcpHeader {
             src_port: self.tuple.local_port, dst_port: self.tuple.remote_port,
             seq: self.iss, ack: self.rcv_nxt, data_offset: 5,
@@ -946,14 +863,12 @@ impl TcpConnection {
             seq: self.iss, seq_len: 1, data: seg, sent_at: now, retransmit_count: 0, sacked: false, lost: false, delivered_at_send: self.bbr_delivered,
         });
     }
-
     fn send_fin(&mut self, tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         let mut options = Vec::new();
         if self.ts_enabled {
             let tsval = self.current_ts(now);
             options.push(TcpOption::Timestamp { tsval, tsecr: self.last_peer_tsval });
         }
-
         let hdr = TcpHeader {
             src_port: self.tuple.local_port, dst_port: self.tuple.remote_port,
             seq: self.snd_nxt, ack: self.rcv_nxt, data_offset: 5,
@@ -969,21 +884,18 @@ impl TcpConnection {
         });
         self.snd_nxt = self.snd_nxt.wrapping_add(1);
     }
-
     fn send_empty_ack(&mut self, tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         let mut options = Vec::new();
         if self.ts_enabled {
             let tsval = self.current_ts(now);
             options.push(TcpOption::Timestamp { tsval, tsecr: self.last_peer_tsval });
         }
-
         if self.sack_permitted {
             let blocks = self.generate_sack_blocks();
             if !blocks.is_empty() {
                 options.push(TcpOption::Sack(blocks));
             }
         }
-
         let hdr = TcpHeader {
             src_port: self.tuple.local_port, dst_port: self.tuple.remote_port,
             seq: self.snd_nxt, ack: self.rcv_nxt, data_offset: 5,
@@ -995,13 +907,11 @@ impl TcpConnection {
         seg[16..18].copy_from_slice(&csum.to_be_bytes());
         tx_queue.push_back(self.encapsulate_ipv4_tcp(seg));
     }
-
     fn drain_retransmit_queue(&mut self, ack: Seq, now: Instant) {
         let mut rtt_sample = None;
         let mut delivered_bytes = 0u64;
         let mut prior_delivered = self.bbr_delivered;
         let mut packet_send_time = now;
-
         while let Some(front) = self.retransmit_queue.front() {
             let seg_end = front.seq.wrapping_add(front.seq_len);
             if seg_end.lte(ack) {
@@ -1016,23 +926,19 @@ impl TcpConnection {
                 break;
             }
         }
-
         self.bbr_delivered += delivered_bytes;
         self.bbr_delivered_stamp = now;
-
         if let Some(rtt) = rtt_sample {
             self.update_rtt(rtt);
             self.update_bbr_model(delivered_bytes, prior_delivered, packet_send_time, rtt, now);
         }
     }
-
     fn compute_rto(&self) -> Duration {
         match self.srtt {
             None => Duration::from_millis(200),
             Some(srtt) => (srtt + self.rttvar * 4).max(Duration::from_millis(100)),
         }
     }
-
     fn update_rtt(&mut self, rtt: Duration) {
         match self.srtt {
             None => {
@@ -1047,7 +953,6 @@ impl TcpConnection {
         }
         self.rto = self.compute_rto();
     }
-
     fn update_bbr_model(&mut self, delivered: u64, prior_delivered: u64, sent_time: Instant, rtt: Duration, now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::BbrUpdate);
         let _guard = scopeguard_end(probes::StageId::BbrUpdate, __probe_start);
@@ -1055,7 +960,6 @@ impl TcpConnection {
             self.bbr_min_rtt = rtt;
             self.bbr_min_rtt_stamp = now;
         }
-
         let delivery_interval = now.duration_since(sent_time);
         if delivery_interval.as_micros() > 0 && delivered > 0 {
             let sample_bw = (self.bbr_delivered - prior_delivered) as f64 / delivery_interval.as_micros() as f64;
@@ -1063,10 +967,8 @@ impl TcpConnection {
                 self.bbr_max_bw = sample_bw;
             }
         }
-
         self.update_bbr_state_machine(now);
     }
-
     fn update_bbr_state_machine(&mut self, now: Instant) {
         match self.bbr_state {
             BbrState::Startup => {
@@ -1109,11 +1011,9 @@ impl TcpConnection {
                 }
             }
         }
-
         let target_cwnd = (self.bbr_max_bw * self.bbr_min_rtt.as_micros() as f64 * self.bbr_cwnd_gain) as u32;
         self.cwnd = target_cwnd.max(4 * self.mss as u32);
     }
-
     pub fn update_sack_scoreboard(&mut self, blocks: &[(Seq, Seq)]) {
         let __probe_start = probes::stage_begin(probes::StageId::SackScoreboard);
         let _guard = scopeguard_end(probes::StageId::SackScoreboard, __probe_start);
@@ -1126,7 +1026,6 @@ impl TcpConnection {
                 }
             }
         }
-
         let mut sacked_ahead_count = 0;
         for i in (0..self.retransmit_queue.len()).rev() {
             if self.retransmit_queue[i].sacked {
@@ -1135,10 +1034,8 @@ impl TcpConnection {
                 self.retransmit_queue[i].lost = true;
             }
         }
-
         self.pipe = self.calculate_pipe();
     }
-
     fn calculate_pipe(&self) -> u32 {
         let mut outstanding_bytes = 0;
         for seg in &self.retransmit_queue {
@@ -1148,20 +1045,17 @@ impl TcpConnection {
         }
         outstanding_bytes
     }
-
     fn next_seg_to_transmit(&mut self) -> Option<(Seq, Vec<u8>)> {
         for seg in &self.retransmit_queue {
             if seg.lost && !seg.sacked && seg.retransmit_count == 0 {
                 return Some((seg.seq, seg.data.clone()));
             }
         }
-
         for seg in &self.retransmit_queue {
             if !seg.sacked && !seg.lost && seg.retransmit_count == 0 {
                 return Some((seg.seq, seg.data.clone()));
             }
         }
-
         if self.pipe < 3 * self.mss as u32 {
             if let Some(last_seg) = self.retransmit_queue.back() {
                 if !last_seg.sacked && self.rescue_rx != Some(last_seg.seq) {
@@ -1169,17 +1063,14 @@ impl TcpConnection {
                 }
             }
         }
-
         None
     }
-
     pub fn flush_send_buffer(&mut self, tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::TxEnqueue);
         let _guard = scopeguard_end(probes::StageId::TxEnqueue, __probe_start);
         if now < self.bbr_next_pacing_time {
             return;
         }
-
         if self.in_recovery_episode {
             while self.pipe < self.cwnd {
                 if let Some((seq, packet_data)) = self.next_seg_to_transmit() {
@@ -1188,7 +1079,6 @@ impl TcpConnection {
                     let csum = tcp_checksum(self.tuple.local_ip, self.tuple.remote_ip, &packet);
                     packet[16..18].copy_from_slice(&csum.to_be_bytes());
                     tx_queue.push_back(self.encapsulate_ipv4_tcp(packet));
-
                     if let Some(seg) = self.retransmit_queue.iter_mut().find(|s| s.seq == seq) {
                         seg.sent_at = now;
                         seg.retransmit_count += 1;
@@ -1203,7 +1093,6 @@ impl TcpConnection {
                 }
             }
         }
-
         loop {
             if self.send_buffer.is_empty() { break; }
             let in_flight = self.snd_nxt.wrapping_sub(self.snd_una);
@@ -1212,13 +1101,11 @@ impl TcpConnection {
             let chunk_len = (window as usize).min(self.peer_mss as usize).min(self.send_buffer.len());
             if chunk_len == 0 { break; }
             let chunk: Vec<u8> = self.send_buffer.drain(..chunk_len).collect();
-            
             let mut options = Vec::new();
             if self.ts_enabled {
                 let tsval = self.current_ts(now);
                 options.push(TcpOption::Timestamp { tsval, tsecr: self.last_peer_tsval });
             }
-
             let hdr = TcpHeader {
                 src_port: self.tuple.local_port, dst_port: self.tuple.remote_port,
                 seq: self.snd_nxt, ack: self.rcv_nxt, data_offset: 5,
@@ -1237,7 +1124,6 @@ impl TcpConnection {
             self.snd_nxt = self.snd_nxt.wrapping_add(chunk.len() as u32);
             self.update_pacing_barrier(chunk_len, now);
         }
-
         if self.send_buffer.is_empty() && self.receive_buffer.is_empty() && self.fin_requested && self.snd_una == self.snd_nxt {
             match self.state {
                 TcpState::Established => {
@@ -1254,12 +1140,10 @@ impl TcpConnection {
             }
         }
     }
-
     fn update_pacing_barrier(&mut self, len: usize, now: Instant) {
         let pacing_delay_micros = (len as f64 / (self.bbr_max_bw * self.bbr_pacing_gain)) as u64;
         self.bbr_next_pacing_time = now + Duration::from_micros(pacing_delay_micros);
     }
-
     pub fn process_segment(&mut self, hdr: TcpHeader, payload: &[u8], tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         let __probe_start = probes::stage_begin(probes::StageId::TcpFsmStep);
         let _guard = scopeguard_end(probes::StageId::TcpFsmStep, __probe_start);
@@ -1267,7 +1151,6 @@ impl TcpConnection {
             self.state = TcpState::Closed;
             return;
         }
-
         for opt in &hdr.options {
             match opt {
                 TcpOption::Timestamp { tsval, .. } => {
@@ -1279,7 +1162,6 @@ impl TcpConnection {
                 _ => {}
             }
         }
-
         match self.state {
             TcpState::SynSent => {
                 if hdr.flags.contains(TcpFlags::SYN) && hdr.flags.contains(TcpFlags::ACK) {
@@ -1383,10 +1265,8 @@ impl TcpConnection {
             _ => {}
         }
     }
-
     fn process_ack(&mut self, hdr: &TcpHeader, tx_queue: &mut VecDeque<Vec<u8>>, now: Instant) {
         if !hdr.flags.contains(TcpFlags::ACK) { return; }
-
         if self.snd_una.lt(hdr.ack) && hdr.ack.lte(self.snd_nxt) {
             self.dup_ack_count = 0;
             self.snd_una = hdr.ack;
@@ -1397,7 +1277,6 @@ impl TcpConnection {
             }
             self.drain_retransmit_queue(hdr.ack, now);
             self.rto = self.compute_rto();
-
             if self.in_recovery_episode {
                 if self.recovery_point.lte(hdr.ack) {
                     self.in_recovery_episode = false;
@@ -1408,23 +1287,19 @@ impl TcpConnection {
             self.flush_send_buffer(tx_queue, now);
         } else if hdr.ack == self.snd_una && !self.retransmit_queue.is_empty() {
             self.dup_ack_count = self.dup_ack_count.saturating_add(1);
-
             if self.dup_ack_count == 3 && !self.in_recovery_episode {
                 self.in_recovery_episode = true;
                 self.recovery_point = self.snd_nxt;
                 self.high_ack = hdr.ack;
                 self.rescue_rx = None;
-
                 if let Some(first_unacked) = self.retransmit_queue.front_mut() {
                     first_unacked.lost = true;
                 }
-
                 self.pipe = self.calculate_pipe();
                 self.flush_send_buffer(tx_queue, now);
             }
         }
     }
-
     pub fn handle_timers(&mut self, now: Instant, tx_queue: &mut VecDeque<Vec<u8>>) {
         if let Some(expiry) = self.time_wait_expiry {
             if now >= expiry {
@@ -1439,7 +1314,6 @@ impl TcpConnection {
                 break;
             }
         }
-
         let mut to_retransmit = None;
         if let Some(seg) = self.retransmit_queue.front_mut() {
             if !seg.sacked && now.duration_since(seg.sent_at) >= self.rto {
@@ -1448,18 +1322,15 @@ impl TcpConnection {
                 to_retransmit = Some(seg.data.clone());
             }
         }
-
         if let Some(packet_data) = to_retransmit {
             self.rto = (self.rto * 2).min(Duration::from_secs(60));
             self.in_recovery_episode = false;
-
             if self.bbr_state != BbrState::ProbeRtt {
                 self.bbr_state = BbrState::ProbeRtt;
                 self.bbr_min_rtt_stamp = now;
                 self.bbr_pacing_gain = 1.0;
                 self.bbr_cwnd_gain = 1.0;
             }
-
             let mut packet = packet_data;
             packet[16..18].copy_from_slice(&[0, 0]);
             let csum = tcp_checksum(self.tuple.local_ip, self.tuple.remote_ip, &packet);
@@ -1468,7 +1339,6 @@ impl TcpConnection {
             tx_queue.push_back(frame);
         }
     }
-
     fn encapsulate_ipv4_tcp(&mut self, tcp_bytes: Vec<u8>) -> Vec<u8> {
         let mut frame = vec![0u8; 14 + 20 + tcp_bytes.len()];
         frame[0..6].copy_from_slice(&[0x00; 6]);
@@ -1491,21 +1361,17 @@ impl TcpConnection {
         frame
     }
 }
-
 #[inline(always)]
 fn scopeguard_end(id: probes::StageId, start: u64) -> ProbeGuard {
     ProbeGuard { id, start }
 }
-
 struct ProbeGuard {
     id: probes::StageId,
     start: u64,
 }
-
 impl Drop for ProbeGuard {
     #[inline(always)]
     fn drop(&mut self) {
         probes::stage_end(self.id, self.start);
     }
 }
-

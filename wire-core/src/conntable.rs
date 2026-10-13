@@ -1,28 +1,22 @@
 use std::collections::HashMap;
-
 pub const DEFAULT_MAX_CONNS: usize = 65536;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ConnHandle {
     pub index: u32,
     pub generation: u32,
 }
-
 impl ConnHandle {
     pub const INVALID: ConnHandle = ConnHandle { index: u32::MAX, generation: 0 };
-
     #[inline(always)]
     pub fn is_valid(&self) -> bool {
         self.index != u32::MAX
     }
 }
-
 pub struct ConnSlot<T> {
     pub generation: u32,
     pub occupied: bool,
     pub data: Option<T>,
 }
-
 impl<T> Default for ConnSlot<T> {
     fn default() -> Self {
         Self {
@@ -32,14 +26,12 @@ impl<T> Default for ConnSlot<T> {
         }
     }
 }
-
 pub struct ConnTable<K: std::hash::Hash + Eq + Clone, T> {
     slots: Vec<ConnSlot<T>>,
     freelist: Vec<u32>,
     index: HashMap<K, u32>,
     capacity: usize,
 }
-
 impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
     pub fn new(capacity: usize) -> Self {
         let mut slots = Vec::with_capacity(capacity);
@@ -55,7 +47,6 @@ impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
             capacity,
         }
     }
-
     #[inline]
     pub fn insert(&mut self, key: K, value: T) -> Option<ConnHandle> {
         if self.index.contains_key(&key) {
@@ -70,21 +61,18 @@ impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
         self.index.insert(key, idx);
         Some(handle)
     }
-
     #[inline]
     pub fn get_by_key(&self, key: &K) -> Option<&T> {
         let idx = *self.index.get(key)?;
         let slot = &self.slots[idx as usize];
         if slot.occupied { slot.data.as_ref() } else { None }
     }
-
     #[inline]
     pub fn get_mut_by_key(&mut self, key: &K) -> Option<&mut T> {
         let idx = *self.index.get(key)?;
         let slot = &mut self.slots[idx as usize];
         if slot.occupied { slot.data.as_mut() } else { None }
     }
-
     #[inline]
     pub fn get_by_handle(&self, h: ConnHandle) -> Option<&T> {
         let slot = self.slots.get(h.index as usize)?;
@@ -94,7 +82,6 @@ impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
             None
         }
     }
-
     #[inline]
     pub fn get_mut_by_handle(&mut self, h: ConnHandle) -> Option<&mut T> {
         let slot = self.slots.get_mut(h.index as usize)?;
@@ -104,7 +91,6 @@ impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
             None
         }
     }
-
     pub fn remove_by_key(&mut self, key: &K) -> Option<T> {
         let idx = self.index.remove(key)?;
         let slot = &mut self.slots[idx as usize];
@@ -112,34 +98,27 @@ impl<K: std::hash::Hash + Eq + Clone, T> ConnTable<K, T> {
         self.freelist.push(idx);
         slot.data.take()
     }
-
     pub fn keys(&self) -> impl Iterator<Item = &K> {
         self.index.keys()
     }
-
     pub fn len(&self) -> usize {
         self.index.len()
     }
-
     pub fn is_empty(&self) -> bool {
         self.index.is_empty()
     }
-
     pub fn capacity(&self) -> usize {
         self.capacity
     }
-
     pub fn iter_mut_values(&mut self) -> impl Iterator<Item = &mut T> {
         self.slots.iter_mut()
             .filter(|s| s.occupied)
             .filter_map(|s| s.data.as_mut())
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn basic_insert_get() {
         let mut t: ConnTable<u32, String> = ConnTable::new(16);
@@ -147,7 +126,6 @@ mod tests {
         assert_eq!(t.get_by_key(&42).unwrap(), "hello");
         assert_eq!(t.get_by_handle(h).unwrap(), "hello");
     }
-
     #[test]
     fn remove_and_reuse() {
         let mut t: ConnTable<u32, String> = ConnTable::new(16);
@@ -157,7 +135,6 @@ mod tests {
         let h2 = t.insert(1, "b".to_string()).unwrap();
         assert_eq!(t.get_by_handle(h2).unwrap(), "b");
     }
-
     #[test]
     fn generation_prevents_aba() {
         let mut t: ConnTable<u32, String> = ConnTable::new(16);
@@ -166,7 +143,6 @@ mod tests {
         let _h_new = t.insert(1, "b".to_string()).unwrap();
         assert!(t.get_by_handle(h_old).is_none());
     }
-
     #[test]
     fn capacity_limit() {
         let mut t: ConnTable<u32, u32> = ConnTable::new(4);

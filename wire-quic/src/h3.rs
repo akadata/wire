@@ -1,6 +1,5 @@
 use crate::varint::VarInt;
 use std::collections::HashMap;
-
 pub const H3_FRAME_DATA: u64 = 0x00;
 pub const H3_FRAME_HEADERS: u64 = 0x01;
 pub const H3_FRAME_CANCEL_PUSH: u64 = 0x03;
@@ -8,13 +7,11 @@ pub const H3_FRAME_SETTINGS: u64 = 0x04;
 pub const H3_FRAME_PUSH_PROMISE: u64 = 0x05;
 pub const H3_FRAME_GOAWAY: u64 = 0x07;
 pub const H3_FRAME_MAX_PUSH_ID: u64 = 0x0d;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct H3Header {
     pub name: String,
     pub value: String,
 }
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum H3Frame {
     Data(Vec<u8>),
@@ -22,9 +19,7 @@ pub enum H3Frame {
     Settings(HashMap<u64, u64>),
     Goaway(u64),
 }
-
 pub struct QpackCodec;
-
 const QPACK_STATIC_TABLE: &[(&str, &str)] = &[
     (":authority", ""),
     (":path", "/"),
@@ -46,12 +41,10 @@ const QPACK_STATIC_TABLE: &[(&str, &str)] = &[
     ("content-type", "text/plain; charset=utf-8"),
     ("server", "wire-v6"),
 ];
-
 impl QpackCodec {
     pub fn encode_headers(headers: &[H3Header], out: &mut Vec<u8>) {
         out.push(0x00);
         out.push(0x00);
-
         for h in headers {
             let mut matched = false;
             for (idx, &(s_name, s_val)) in QPACK_STATIC_TABLE.iter().enumerate() {
@@ -64,7 +57,6 @@ impl QpackCodec {
             if matched {
                 continue;
             }
-
             let mut name_idx = None;
             for (idx, &(s_name, _)) in QPACK_STATIC_TABLE.iter().enumerate() {
                 if h.name == s_name {
@@ -72,7 +64,6 @@ impl QpackCodec {
                     break;
                 }
             }
-
             if let Some(idx) = name_idx {
                 out.push(0x50 | (idx as u8));
                 Self::encode_string(&h.value, out);
@@ -83,14 +74,12 @@ impl QpackCodec {
             }
         }
     }
-
     pub fn decode_headers(raw: &[u8]) -> Option<Vec<H3Header>> {
         if raw.len() < 2 {
             return None;
         }
         let mut offset = 2;
         let mut headers = Vec::new();
-
         while offset < raw.len() {
             let b = raw[offset];
             if (b & 0xc0) == 0xc0 {
@@ -126,13 +115,11 @@ impl QpackCodec {
         }
         Some(headers)
     }
-
     fn encode_string(s: &str, out: &mut Vec<u8>) {
         let bytes = s.as_bytes();
         VarInt(bytes.len() as u64).encode_vec(out);
         out.extend_from_slice(bytes);
     }
-
     fn decode_string(raw: &[u8]) -> Option<(String, usize)> {
         let (len_var, vlen) = VarInt::decode(raw)?;
         let len = len_var.0 as usize;
@@ -145,7 +132,6 @@ impl QpackCodec {
         Some((s, end))
     }
 }
-
 impl H3Frame {
     pub fn parse(buf: &[u8]) -> Option<(Self, usize)> {
         if buf.is_empty() {
@@ -156,14 +142,11 @@ impl H3Frame {
         let (payload_len, l_len) = VarInt::decode(&buf[offset..])?;
         offset += l_len;
         let plen = payload_len.0 as usize;
-
         if buf.len() < offset + plen {
             return None;
         }
-
         let payload = &buf[offset..offset + plen];
         offset += plen;
-
         match frame_type.0 {
             H3_FRAME_DATA => Some((H3Frame::Data(payload.to_vec()), offset)),
             H3_FRAME_HEADERS => {
@@ -189,7 +172,6 @@ impl H3Frame {
             _ => None,
         }
     }
-
     pub fn encode(&self, out: &mut Vec<u8>) {
         match self {
             H3Frame::Data(data) => {

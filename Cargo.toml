@@ -11,7 +11,12 @@ members = [
     "wire-xdp",
     "wire-uring",
     "wire-quic",
-    "wire-runtime"
+    "wire-runtime",
+    "wire-disruptor",
+    "wire-exchange",
+    "wire-dma",
+    "wire-risk",
+    "wire-ptp"
 ]
 
 [workspace.dependencies]

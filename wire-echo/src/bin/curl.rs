@@ -4,10 +4,8 @@ use std::time::{Duration, Instant};
 use rustls::{ClientConfig, ClientConnection};
 use wire_core::{build_dns_query, parse_dns_response, Ipv4Address, MacAddress, SocketTuple, Stack, TcpState};
 use wire_tap::TapDevice;
-
 #[derive(Debug)]
 struct NoCertificateVerification;
-
 impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
     fn verify_server_cert(
         &self,
@@ -19,7 +17,6 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
     ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
-
     fn verify_tls12_signature(
         &self,
         _message: &[u8],
@@ -28,7 +25,6 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
         Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
     }
-
     fn verify_tls13_signature(
         &self,
         _message: &[u8],
@@ -37,7 +33,6 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
     ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
         Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
     }
-
     fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
         vec![
             rustls::SignatureScheme::RSA_PKCS1_SHA256,
@@ -47,7 +42,6 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
         ]
     }
 }
-
 enum CurlStage {
     DnsQuery,
     Connecting { tuple: SocketTuple, secure: bool, host: String },
@@ -55,24 +49,19 @@ enum CurlStage {
     Connected { tuple: SocketTuple, tls: Option<ClientConnection> },
     Done,
 }
-
 fn main() -> anyhow::Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-
     let args: Vec<String> = std::env::args().collect();
     let target = if args.len() > 1 { &args[1] } else { "http://192.168.99.1:8000/index.html" };
-
     let secure = target.starts_with("https://");
     let url_str = target
         .strip_prefix("https://")
         .or_else(|| target.strip_prefix("http://"))
         .unwrap_or(target);
-
     let (host_port, path) = match url_str.find('/') {
         Some(idx) => (&url_str[..idx], url_str[idx..].to_string()),
         None => (url_str, "/".to_string()),
     };
-
     let (host, port) = match host_port.find(':') {
         Some(idx) => (
             host_port[..idx].to_string(),
@@ -80,25 +69,20 @@ fn main() -> anyhow::Result<()> {
         ),
         None => (host_port.to_string(), if secure { 443 } else { 80 }),
     };
-
     let is_ip = host.parse::<std::net::Ipv4Addr>().is_ok();
-
     let config = ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(NoCertificateVerification))
         .with_no_client_auth();
     let config_arc = Arc::new(config);
-
     let mut tap = TapDevice::new("tap0")?;
     let local_mac = MacAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]);
     let local_ip = Ipv4Address([192, 168, 99, 2]);
     let gateway_ip = Ipv4Address([192, 168, 99, 1]);
     let dns_server = Ipv4Address([192, 168, 99, 1]);
-
     let mut stack = Stack::new(local_mac, local_ip, gateway_ip);
     let mut buf = [0u8; 2048];
     let mut last_tick = Instant::now();
-
     let mut stage = if is_ip {
         let ip_parsed = host.parse::<std::net::Ipv4Addr>().unwrap();
         let target_ip = Ipv4Address(ip_parsed.octets());
@@ -109,25 +93,20 @@ fn main() -> anyhow::Result<()> {
         stack.udp_send(dns_server, 53, 53000, &query);
         CurlStage::DnsQuery
     };
-
     let mut response_bytes = Vec::new();
     let mut request_sent = false;
-
     loop {
         let now = Instant::now();
         if now.duration_since(last_tick) >= Duration::from_millis(10) {
             stack.on_tick(now);
             last_tick = now;
         }
-
         let mut read_any = false;
         while let Some(n) = tap.poll_read(&mut buf)? {
             stack.on_packet(&buf[..n], now);
             read_any = true;
         }
-
         let mut next_stage = None;
-
         match &mut stage {
             CurlStage::DnsQuery => {
                 if let Some((_src_ip, _src_port, data)) = stack.udp_recv(53000) {
@@ -167,14 +146,12 @@ fn main() -> anyhow::Result<()> {
                         stack.tcp_send(*tuple, &write_buf);
                         stack.flush(now);
                     }
-
                     let rx_data = stack.tcp_recv(*tuple);
                     if !rx_data.is_empty() {
                         let mut slice = &rx_data[..];
                         tls.read_tls(&mut slice)?;
                         tls.process_new_packets()?;
                     }
-
                     if !tls.is_handshaking() {
                         let req = format!("GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", p, h);
                         let _ = tls.writer().write_all(req.as_bytes());
@@ -183,7 +160,6 @@ fn main() -> anyhow::Result<()> {
                         stack.tcp_send(*tuple, &write_buf);
                         stack.flush(now);
                         request_sent = true;
-                        
                         let current_stage = std::mem::replace(&mut stage, CurlStage::Done);
                         if let CurlStage::TlsHandshake { tuple, tls, .. } = current_stage {
                             stage = CurlStage::Connected { tuple, tls: Some(tls) };
@@ -217,11 +193,9 @@ fn main() -> anyhow::Result<()> {
             }
             CurlStage::Done => break,
         }
-
         if let Some(next) = next_stage {
             stage = next;
         }
-
         while let Some(mut tx_packet) = stack.tx_queue.pop_front() {
             stack.resolve_and_populate_dst_mac(&mut tx_packet);
             match tap.write_async(&tx_packet)? {
@@ -232,15 +206,12 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-
         if !read_any {
             std::thread::sleep(Duration::from_micros(100));
         }
     }
-
     println!("\n=== WIRE-CURL RESPONSE BODY ===");
     println!("{}", String::from_utf8_lossy(&response_bytes));
     println!("===============================");
-
     Ok(())
 }

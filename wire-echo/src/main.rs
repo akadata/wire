@@ -1,7 +1,6 @@
 use std::time::Instant;
 use wire_core::{Stack, MacAddress, Ipv4Address, TcpState};
 use wire_tap::TapDevice;
-
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     let mut tap = TapDevice::new("tap0")?;
@@ -12,20 +11,17 @@ fn main() -> anyhow::Result<()> {
     stack.listen(8080);
     let mut buf = [0u8; 2048];
     let mut last_tick = Instant::now();
-
     loop {
         let now = Instant::now();
         if now.duration_since(last_tick) >= std::time::Duration::from_millis(10) {
             stack.on_tick(now);
             last_tick = now;
         }
-
         let mut read_any = false;
         while let Some(n) = tap.poll_read(&mut buf)? {
             stack.on_packet(&buf[..n], now);
             read_any = true;
         }
-
         for tuple in stack.active_connections() {
             let data = stack.tcp_recv(tuple);
             if !data.is_empty() {
@@ -35,7 +31,6 @@ fn main() -> anyhow::Result<()> {
                 stack.tcp_close(tuple, now);
             }
         }
-
         while let Some(mut tx_packet) = stack.tx_queue.pop_front() {
             stack.resolve_and_populate_dst_mac(&mut tx_packet);
             match tap.write_async(&tx_packet)? {
@@ -46,7 +41,6 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
-
         if !read_any {
             std::thread::sleep(std::time::Duration::from_micros(50));
         }

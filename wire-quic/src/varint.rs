@@ -1,17 +1,13 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct VarInt(pub u64);
-
 pub const MAX_VARINT: u64 = (1 << 62) - 1;
-
 impl VarInt {
     pub const ZERO: Self = Self(0);
     pub const ONE: Self = Self(1);
-
     #[inline(always)]
     pub fn from_u32(v: u32) -> Self {
         Self(v as u64)
     }
-
     #[inline(always)]
     pub fn from_u64(v: u64) -> Option<Self> {
         if v <= MAX_VARINT {
@@ -20,7 +16,6 @@ impl VarInt {
             None
         }
     }
-
     #[inline(always)]
     pub fn encode(&self, out: &mut [u8]) -> usize {
         let val = self.0;
@@ -42,14 +37,12 @@ impl VarInt {
             8
         }
     }
-
     #[inline(always)]
     pub fn encode_vec(&self, out: &mut Vec<u8>) {
         let mut buf = [0u8; 8];
         let len = self.encode(&mut buf);
         out.extend_from_slice(&buf[..len]);
     }
-
     #[inline(always)]
     pub fn decode(buf: &[u8]) -> Option<(Self, usize)> {
         if buf.is_empty() {
@@ -86,7 +79,6 @@ impl VarInt {
             _ => unreachable!(),
         }
     }
-
     #[inline(always)]
     pub fn size(&self) -> usize {
         let val = self.0;

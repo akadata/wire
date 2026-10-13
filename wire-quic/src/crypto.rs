@@ -1,33 +1,26 @@
 use ring::aead::{AES_128_GCM, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::hkdf;
-
 pub const INITIAL_SALT_V1: [u8; 20] = [
     0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3,
     0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad,
     0xcc, 0xbb, 0x7f, 0x0a,
 ];
-
 pub const AES_GCM_TAG_LEN: usize = 16;
-
 pub struct QuicKeys {
     pub local: DirectionKeys,
     pub remote: DirectionKeys,
 }
-
 pub struct DirectionKeys {
     pub key: LessSafeKey,
     pub iv: [u8; 12],
     pub hp_key: Aes128,
 }
-
 struct HkdfLabelLen(usize);
-
 impl hkdf::KeyType for HkdfLabelLen {
     fn len(&self) -> usize {
         self.0
     }
 }
-
 pub fn hkdf_expand_label(
     prk: &hkdf::Prk,
     label: &[u8],
@@ -43,7 +36,6 @@ pub fn hkdf_expand_label(
     label_vec.extend_from_slice(label);
     label_vec.push(context.len() as u8);
     label_vec.extend_from_slice(context);
-
     let mut out = vec![0u8; out_len];
     let info = [label_vec.as_slice()];
     prk.expand(&info, HkdfLabelLen(out_len))
@@ -52,20 +44,15 @@ pub fn hkdf_expand_label(
         .unwrap();
     out
 }
-
 pub fn derive_initial_keys(client_dst_cid: &[u8], is_server: bool) -> QuicKeys {
     let salt = hkdf::Salt::new(hkdf::HKDF_SHA256, &INITIAL_SALT_V1);
     let initial_secret = salt.extract(client_dst_cid);
-
     let client_secret_bytes = hkdf_expand_label(&initial_secret, b"client in", b"", 32);
     let server_secret_bytes = hkdf_expand_label(&initial_secret, b"server in", b"", 32);
-
     let client_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &client_secret_bytes);
     let server_prk = hkdf::Prk::new_less_safe(hkdf::HKDF_SHA256, &server_secret_bytes);
-
     let client_keys = derive_direction_keys(&client_prk);
     let server_keys = derive_direction_keys(&server_prk);
-
     if is_server {
         QuicKeys {
             local: server_keys,
@@ -78,25 +65,19 @@ pub fn derive_initial_keys(client_dst_cid: &[u8], is_server: bool) -> QuicKeys {
         }
     }
 }
-
 fn derive_direction_keys(prk: &hkdf::Prk) -> DirectionKeys {
     let key_bytes = hkdf_expand_label(prk, b"quic key", b"", 16);
     let iv_bytes = hkdf_expand_label(prk, b"quic iv", b"", 12);
     let hp_bytes = hkdf_expand_label(prk, b"quic hp", b"", 16);
-
     let unbound_key = UnboundKey::new(&AES_128_GCM, &key_bytes).unwrap();
     let key = LessSafeKey::new(unbound_key);
-
     let mut iv = [0u8; 12];
     iv.copy_from_slice(&iv_bytes);
-
     let mut hp_arr = [0u8; 16];
     hp_arr.copy_from_slice(&hp_bytes);
     let hp_key = Aes128::new(&hp_arr);
-
     DirectionKeys { key, iv, hp_key }
 }
-
 impl DirectionKeys {
     pub fn encrypt_payload(
         &self,
@@ -114,7 +95,6 @@ impl DirectionKeys {
         let tag = self.key.seal_in_place_separate_tag(nonce, aad, payload).unwrap();
         payload.extend_from_slice(tag.as_ref());
     }
-
     pub fn decrypt_payload(
         &self,
         packet_number: u64,
@@ -134,7 +114,6 @@ impl DirectionKeys {
         let plain_slice = self.key.open_in_place(nonce, aad, payload_and_tag).map_err(|_| ())?;
         Ok(plain_slice.len())
     }
-
     pub fn apply_header_protection(&self, sample: &[u8; 16], first_byte: &mut u8, pn_bytes: &mut [u8]) {
         let mask = self.hp_key.encrypt_block(sample);
         let is_long_header = (*first_byte & 0x80) != 0;
@@ -148,17 +127,14 @@ impl DirectionKeys {
             *b ^= *m;
         }
     }
-
     pub fn remove_header_protection(&self, sample: &[u8; 16], first_byte: &mut u8, pn_bytes: &mut [u8]) {
         self.apply_header_protection(sample, first_byte, pn_bytes);
     }
 }
-
 #[derive(Clone, Copy)]
 pub struct Aes128 {
     round_keys: [u32; 44],
 }
-
 impl Aes128 {
     pub fn new(key: &[u8; 16]) -> Self {
         let mut rk = [0u32; 44];
@@ -183,31 +159,26 @@ impl Aes128 {
         }
         Self { round_keys: rk }
     }
-
     #[inline(always)]
     fn sub_word(w: u32) -> u32 {
         let b = w.to_be_bytes();
         u32::from_be_bytes([SBOX[b[0] as usize], SBOX[b[1] as usize], SBOX[b[2] as usize], SBOX[b[3] as usize]])
     }
-
     pub fn encrypt_block(&self, block: &[u8; 16]) -> [u8; 16] {
         let mut s = [0u8; 16];
         s.copy_from_slice(block);
         self.add_round_key(&mut s, 0);
-
         for r in 1..10 {
             self.sub_bytes(&mut s);
             self.shift_rows(&mut s);
             self.mix_columns(&mut s);
             self.add_round_key(&mut s, r);
         }
-
         self.sub_bytes(&mut s);
         self.shift_rows(&mut s);
         self.add_round_key(&mut s, 10);
         s
     }
-
     #[inline(always)]
     fn add_round_key(&self, s: &mut [u8; 16], round: usize) {
         let rk_bytes = [
@@ -222,14 +193,12 @@ impl Aes128 {
             }
         }
     }
-
     #[inline(always)]
     fn sub_bytes(&self, s: &mut [u8; 16]) {
         for b in s.iter_mut() {
             *b = SBOX[*b as usize];
         }
     }
-
     #[inline(always)]
     fn shift_rows(&self, s: &mut [u8; 16]) {
         let t = *s;
@@ -237,18 +206,15 @@ impl Aes128 {
         s[5] = t[9];
         s[9] = t[13];
         s[13] = t[1];
-
         s[2] = t[10];
         s[6] = t[14];
         s[10] = t[2];
         s[14] = t[6];
-
         s[3] = t[15];
         s[7] = t[3];
         s[11] = t[7];
         s[15] = t[11];
     }
-
     #[inline(always)]
     fn mix_columns(&self, s: &mut [u8; 16]) {
         for c in 0..4 {
@@ -257,14 +223,12 @@ impl Aes128 {
             let a1 = s[i + 1];
             let a2 = s[i + 2];
             let a3 = s[i + 3];
-
             s[i] = Self::xt(a0) ^ Self::xt(a1) ^ a1 ^ a2 ^ a3;
             s[i + 1] = a0 ^ Self::xt(a1) ^ Self::xt(a2) ^ a2 ^ a3;
             s[i + 2] = a0 ^ a1 ^ Self::xt(a2) ^ Self::xt(a3) ^ a3;
             s[i + 3] = Self::xt(a0) ^ a0 ^ a1 ^ a2 ^ Self::xt(a3);
         }
     }
-
     #[inline(always)]
     fn xt(b: u8) -> u8 {
         if (b & 0x80) != 0 {
@@ -274,7 +238,6 @@ impl Aes128 {
         }
     }
 }
-
 const SBOX: [u8; 256] = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,

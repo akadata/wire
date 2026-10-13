@@ -957,16 +957,41 @@ dependencies = [
 ]
 
 [[package]]
-name = "wire-echo"
+name = "wire-disruptor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "libc",
+ "wire-core",
+]
+
+[[package]]
+name = "wire-dma"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "wire-core",
+ "wire-xdp",
+]
+
+[[package]]
+name = "wire-echo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "io-uring",
+ "libc",
  "rustls",
  "tracing-subscriber",
  "wire-core",
+ "wire-disruptor",
+ "wire-dma",
+ "wire-exchange",
  "wire-pacer",
+ "wire-ptp",
  "wire-quic",
+ "wire-risk",
  "wire-runtime",
  "wire-sim",
  "wire-simd",
@@ -976,9 +1001,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "wire-exchange"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "wire-core",
+ "wire-disruptor",
+]
+
+[[package]]
 name = "wire-pacer"
 version = "0.1.0"
 dependencies = [
+ "wire-core",
+]
+
+[[package]]
+name = "wire-ptp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
  "wire-core",
 ]
 
@@ -992,6 +1036,16 @@ dependencies = [
  "smallvec",
  "thiserror",
  "wire-core",
+]
+
+[[package]]
+name = "wire-risk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "libc",
+ "wire-core",
+ "wire-exchange",
 ]
 
 [[package]]

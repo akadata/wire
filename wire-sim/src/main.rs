@@ -1,6 +1,5 @@
 use std::time::Duration;
 use wire_sim::{SimConfig, run_simulation};
-
 fn main() {
     let configs = vec![
         ("clean", SimConfig {
@@ -28,7 +27,6 @@ fn main() {
             max_ticks: 2_000_000,
         }),
     ];
-
     for (name, config) in &configs {
         let mut pass = 0;
         let mut fail = 0;

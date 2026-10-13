@@ -1,6 +1,5 @@
 use crate::ParsedL4;
 use crate::parse_one;
-
 pub fn parse_batch_x8(frames: &[&[u8]; 8], out: &mut [ParsedL4; 8]) {
     out[0] = parse_one(frames[0]);
     out[1] = parse_one(frames[1]);

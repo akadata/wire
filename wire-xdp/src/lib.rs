@@ -1,11 +1,9 @@
 pub mod hints;
-
 use std::ptr;
 use std::sync::atomic::{fence, Ordering};
 use wire_core::probes::{self, StageId};
 use wire_simd::ParsedL4;
 pub use hints::{NicRxMetadata, read_nic_hints_from_headroom};
-
 pub const NUM_FRAMES: usize = 4096;
 pub const RX_FRAMES: usize = 2048;
 pub const TX_FRAMES: usize = 2048;
@@ -13,7 +11,6 @@ pub const FRAME_SIZE: usize = 2048;
 pub const FRAME_HEADROOM: usize = 256;
 pub const UMEM_SIZE: usize = NUM_FRAMES * FRAME_SIZE;
 pub const BATCH_SIZE: usize = 64;
-
 const SOL_XDP: libc::c_int = 283;
 const XDP_UMEM_REG: libc::c_int = 3;
 const XDP_UMEM_FILL_RING: libc::c_int = 5;
@@ -22,7 +19,6 @@ const XDP_RX_RING: libc::c_int = 1;
 const XDP_TX_RING: libc::c_int = 2;
 const XDP_MMAP_OFFSETS: libc::c_int = 1;
 const XDP_COPY: u16 = 1 << 1;
-
 const BPF_MAP_CREATE: i32 = 0;
 const BPF_MAP_UPDATE_ELEM: i32 = 2;
 const BPF_PROG_LOAD: i32 = 5;
@@ -30,7 +26,6 @@ const BPF_MAP_TYPE_XSKMAP: u32 = 17;
 const BPF_MAP_TYPE_HASH: u32 = 1;
 const BPF_PROG_TYPE_XDP: u32 = 6;
 const MAP_HUGE_2MB: libc::c_int = 21 << 26;
-
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 pub struct XdpUmemReg {
@@ -40,7 +35,6 @@ pub struct XdpUmemReg {
     pub headroom: u32,
     pub flags: u32,
 }
-
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 pub struct XdpRingOffset {
@@ -49,7 +43,6 @@ pub struct XdpRingOffset {
     pub desc: u64,
     pub flags: u64,
 }
-
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
 pub struct XdpMmapOffsets {
@@ -58,7 +51,6 @@ pub struct XdpMmapOffsets {
     pub fr: XdpRingOffset,
     pub cr: XdpRingOffset,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SockAddrXdp {
@@ -68,7 +60,6 @@ pub struct SockAddrXdp {
     pub sxdp_queue_id: u32,
     pub sxdp_shared_umem_fd: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug)]
 pub struct XdpDesc {
@@ -76,7 +67,6 @@ pub struct XdpDesc {
     pub len: u32,
     pub options: u32,
 }
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct BpfMapAttr {
@@ -89,7 +79,6 @@ struct BpfMapAttr {
     numa_node: u32,
     map_name: [u8; 16],
 }
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct BpfProgAttr {
@@ -104,7 +93,6 @@ struct BpfProgAttr {
     prog_flags: u32,
     prog_name: [u8; 16],
 }
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct BpfMapOpAttr {
@@ -113,7 +101,6 @@ struct BpfMapOpAttr {
     value: u64,
     flags: u64,
 }
-
 pub fn pin_thread_to_core(core_id: usize) -> anyhow::Result<()> {
     // SAFETY: Binding execution thread to dedicated CPU core via sched_setaffinity.
     unsafe {
@@ -126,22 +113,18 @@ pub fn pin_thread_to_core(core_id: usize) -> anyhow::Result<()> {
     }
     Ok(())
 }
-
 fn bpf_syscall(cmd: i32, attr: *const u8, size: usize) -> i32 {
     // SAFETY: Direct BPF kernel system call invocation.
     unsafe { libc::syscall(libc::SYS_bpf, cmd, attr, size) as i32 }
 }
-
 pub struct XdpBpfModule {
     pub xsks_map_fd: i32,
     pub allowed_ports_map_fd: i32,
     pub prog_fd: i32,
 }
-
 impl XdpBpfModule {
     pub fn load_and_attach(ifname: &str, elf_bytes: &[u8]) -> anyhow::Result<Self> {
         let (xsks_map_fd, allowed_ports_map_fd, instructions) = Self::parse_elf_and_relocate(elf_bytes)?;
-
         let license = b"GPL\0";
         let mut log_buf = vec![0u8; 65536];
         let mut prog_attr = BpfProgAttr {
@@ -157,7 +140,6 @@ impl XdpBpfModule {
             prog_name: [0; 16],
         };
         prog_attr.prog_name[..11].copy_from_slice(b"xdp_red_xsk");
-
         let prog_fd = bpf_syscall(BPF_PROG_LOAD, &prog_attr as *const _ as *const u8, std::mem::size_of::<BpfProgAttr>());
         if prog_fd < 0 {
             // SAFETY: Cleaning map file descriptors on loader error state.
@@ -167,7 +149,6 @@ impl XdpBpfModule {
             }
             return Err(anyhow::anyhow!("BPF Program load error: {}", std::io::Error::last_os_error()));
         }
-
         // SAFETY: Interface name to interface index libc lookup.
         let ifindex = unsafe {
             let cname = std::ffi::CString::new(ifname)?;
@@ -176,7 +157,6 @@ impl XdpBpfModule {
         if ifindex == 0 {
             return Err(anyhow::anyhow!("Interface lookup failed: {}", ifname));
         }
-
         // SAFETY: Direct Netlink configuration payload submission.
         let nl_fd = unsafe { libc::socket(libc::AF_NETLINK, libc::SOCK_RAW, libc::NETLINK_ROUTE) };
         if nl_fd >= 0 {
@@ -189,10 +169,8 @@ impl XdpBpfModule {
                 fd_attr: libc::nlattr,
                 fd_val: i32,
             }
-
             let mut ifi: libc::ifinfomsg = unsafe { std::mem::zeroed() };
             ifi.ifi_index = ifindex as i32;
-
             let msg = NlMsg {
                 hdr: libc::nlmsghdr {
                     nlmsg_len: std::mem::size_of::<NlMsg>() as u32,
@@ -221,16 +199,13 @@ impl XdpBpfModule {
                 libc::close(nl_fd);
             }
         }
-
         Ok(Self { xsks_map_fd, allowed_ports_map_fd, prog_fd })
     }
-
     fn parse_elf_and_relocate(elf: &[u8]) -> anyhow::Result<(i32, i32, Vec<u64>)> {
         let e_shoff = u64::from_le_bytes(elf[40..48].try_into()?) as usize;
         let e_shentsize = u16::from_le_bytes(elf[58..60].try_into()?) as usize;
         let e_shnum = u16::from_le_bytes(elf[60..62].try_into()?) as usize;
         let e_shstrndx = u16::from_le_bytes(elf[62..64].try_into()?) as usize;
-
         let mut sh_headers = Vec::new();
         for i in 0..e_shnum {
             let offset = e_shoff + i * e_shentsize;
@@ -240,7 +215,6 @@ impl XdpBpfModule {
             let sh_size = u64::from_le_bytes(elf[offset+32..offset+40].try_into()?) as usize;
             sh_headers.push((sh_name, sh_type, sh_offset, sh_size));
         }
-
         let str_sec_offset = sh_headers[e_shstrndx].2;
         let get_string = |name_offset: usize| -> String {
             let mut end = name_offset;
@@ -249,14 +223,12 @@ impl XdpBpfModule {
             }
             String::from_utf8_lossy(&elf[str_sec_offset + name_offset..str_sec_offset + end]).into_owned()
         };
-
         let mut xdp_section_offset = 0;
         let mut xdp_section_size = 0;
         let mut rel_section_offset = 0;
         let mut rel_section_size = 0;
         let mut symtab_offset = 0;
         let mut strtab_offset = 0;
-
         for (sh_name, sh_type, sh_offset, sh_size) in &sh_headers {
             let name = get_string(*sh_name);
             if name == "xdp" {
@@ -271,7 +243,6 @@ impl XdpBpfModule {
                 strtab_offset = *sh_offset;
             }
         }
-
         let mut xsks_attr = BpfMapAttr {
             map_type: BPF_MAP_TYPE_XSKMAP,
             key_size: 4,
@@ -287,7 +258,6 @@ impl XdpBpfModule {
         if xsks_map_fd < 0 {
             return Err(anyhow::anyhow!("Failed to create xskmap: {}", std::io::Error::last_os_error()));
         }
-
         let mut ports_attr = BpfMapAttr {
             map_type: BPF_MAP_TYPE_HASH,
             key_size: 2,
@@ -305,7 +275,6 @@ impl XdpBpfModule {
             unsafe { libc::close(xsks_map_fd); }
             return Err(anyhow::anyhow!("Failed to create allowed_ports map: {}", std::io::Error::last_os_error()));
         }
-
         let mut raw_insns = vec![0u64; xdp_section_size / 8];
         // SAFETY: Copying ELF bytecode into instruction buffer.
         unsafe {
@@ -315,7 +284,6 @@ impl XdpBpfModule {
                 xdp_section_size,
             );
         }
-
         let get_symbol_name = |sym_idx: usize| -> String {
             let sym_offset = symtab_offset + sym_idx * 24;
             let st_name = u32::from_le_bytes(elf[sym_offset..sym_offset+4].try_into().unwrap()) as usize;
@@ -325,14 +293,12 @@ impl XdpBpfModule {
             }
             String::from_utf8_lossy(&elf[strtab_offset + st_name..strtab_offset + end]).into_owned()
         };
-
         let num_rel = rel_section_size / 16;
         for i in 0..num_rel {
             let rel_offset = rel_section_offset + i * 16;
             let r_offset = u64::from_le_bytes(elf[rel_offset..rel_offset+8].try_into()?) as usize;
             let r_info = u64::from_le_bytes(elf[rel_offset+8..rel_offset+16].try_into()?);
             let sym_idx = (r_info >> 32) as usize;
-
             let sym_name = get_symbol_name(sym_idx);
             let fd_val = if sym_name == "xsks_map" {
                 xsks_map_fd
@@ -341,22 +307,18 @@ impl XdpBpfModule {
             } else {
                 continue;
             };
-
             let insn_idx = r_offset / 8;
             let insn = raw_insns[insn_idx];
             let opcode = insn & 0xFF;
             if opcode == 0x18 {
                 let masked_insn = insn & !(0xF00);
                 raw_insns[insn_idx] = masked_insn | (1 << 8);
-
                 let cleared_imm = raw_insns[insn_idx] & !(0xFFFFFFFF << 32);
                 raw_insns[insn_idx] = cleared_imm | ((fd_val as u64) << 32);
             }
         }
-
         Ok((xsks_map_fd, allowed_ports_fd, raw_insns))
     }
-
     pub fn update_xsk_map(&self, queue_id: u32, xsk_fd: i32) -> anyhow::Result<()> {
         let attr = BpfMapOpAttr {
             map_fd: self.xsks_map_fd as u32,
@@ -370,7 +332,6 @@ impl XdpBpfModule {
         }
         Ok(())
     }
-
     pub fn register_port(&self, port: u16) -> anyhow::Result<()> {
         let dport = port.to_be();
         let val: u8 = 1;
@@ -387,7 +348,6 @@ impl XdpBpfModule {
         Ok(())
     }
 }
-
 pub struct XdpRing {
     producer: *mut u32,
     consumer: *mut u32,
@@ -395,7 +355,6 @@ pub struct XdpRing {
     size: u32,
     mask: u32,
 }
-
 impl XdpRing {
     pub unsafe fn new(mmap_ptr: *mut libc::c_void, offsets: &XdpRingOffset, size: u32) -> Self {
         Self {
@@ -406,32 +365,27 @@ impl XdpRing {
             mask: size - 1,
         }
     }
-
     #[inline(always)]
     pub fn producer_index(&self) -> u32 {
         // SAFETY: Atomic volatile read of UMEM ring producer pointer.
         unsafe { ptr::read_volatile(self.producer) }
     }
-
     #[inline(always)]
     pub fn consumer_index(&self) -> u32 {
         // SAFETY: Atomic volatile read of UMEM ring consumer pointer.
         unsafe { ptr::read_volatile(self.consumer) }
     }
-
     #[inline(always)]
     pub fn set_producer_index(&mut self, idx: u32) {
         // SAFETY: Atomic volatile write of UMEM ring producer pointer.
         unsafe { ptr::write_volatile(self.producer, idx) }
     }
-
     #[inline(always)]
     pub fn set_consumer_index(&mut self, idx: u32) {
         // SAFETY: Atomic volatile write of UMEM ring consumer pointer.
         unsafe { ptr::write_volatile(self.consumer, idx) }
     }
 }
-
 #[repr(C, align(64))]
 pub struct SpscRecycleRing {
     buffer: [u64; TX_FRAMES],
@@ -439,7 +393,6 @@ pub struct SpscRecycleRing {
     tail: u32,
     mask: u32,
 }
-
 impl SpscRecycleRing {
     pub fn new() -> Self {
         let mut ring = Self {
@@ -454,7 +407,6 @@ impl SpscRecycleRing {
         ring.tail = TX_FRAMES as u32;
         ring
     }
-
     #[inline(always)]
     pub fn pop(&mut self) -> Option<u64> {
         if self.head == self.tail {
@@ -464,7 +416,6 @@ impl SpscRecycleRing {
         self.head = self.head.wrapping_add(1);
         Some(addr)
     }
-
     #[inline(always)]
     pub fn push(&mut self, addr: u64) -> bool {
         if self.tail.wrapping_sub(self.head) >= TX_FRAMES as u32 {
@@ -475,7 +426,6 @@ impl SpscRecycleRing {
         true
     }
 }
-
 pub struct XdpSocket {
     fd: i32,
     umem_area: *mut u8,
@@ -490,7 +440,6 @@ pub struct XdpSocket {
     fill_prod: u32,
     comp_cons: u32,
 }
-
 impl XdpSocket {
     pub fn new(ifname: &str, queue_id: u32) -> anyhow::Result<Self> {
         // SAFETY: Raw initialization and memory mapping of AF_XDP socket.
@@ -499,7 +448,6 @@ impl XdpSocket {
             if fd < 0 {
                 return Err(anyhow::anyhow!("Socket creation error"));
             }
-
             let mut is_hugepage = true;
             let mut umem_area = libc::mmap(
                 ptr::null_mut(),
@@ -509,7 +457,6 @@ impl XdpSocket {
                 -1,
                 0,
             );
-
             if umem_area == libc::MAP_FAILED {
                 is_hugepage = false;
                 let mut aligned_ptr: *mut libc::c_void = ptr::null_mut();
@@ -520,9 +467,7 @@ impl XdpSocket {
                 }
                 umem_area = aligned_ptr;
             }
-
             let _ = libc::mlock(umem_area, UMEM_SIZE);
-
             let reg = XdpUmemReg {
                 addr: umem_area as u64,
                 len: UMEM_SIZE as u64,
@@ -530,7 +475,6 @@ impl XdpSocket {
                 headroom: FRAME_HEADROOM as u32,
                 flags: 0,
             };
-
             let res = libc::setsockopt(fd, SOL_XDP, XDP_UMEM_REG, &reg as *const _ as *const libc::c_void, std::mem::size_of::<XdpUmemReg>() as u32);
             if res < 0 {
                 if is_hugepage {
@@ -541,32 +485,26 @@ impl XdpSocket {
                 libc::close(fd);
                 return Err(anyhow::anyhow!("setsockopt REG failed"));
             }
-
             let ring_size: u32 = 2048;
             libc::setsockopt(fd, SOL_XDP, XDP_UMEM_FILL_RING, &ring_size as *const _ as *const libc::c_void, 4);
             libc::setsockopt(fd, SOL_XDP, XDP_UMEM_COMPLETION_RING, &ring_size as *const _ as *const libc::c_void, 4);
             libc::setsockopt(fd, SOL_XDP, XDP_RX_RING, &ring_size as *const _ as *const libc::c_void, 4);
             libc::setsockopt(fd, SOL_XDP, XDP_TX_RING, &ring_size as *const _ as *const libc::c_void, 4);
-
             let mut offsets = XdpMmapOffsets::default();
             let mut optlen = std::mem::size_of::<XdpMmapOffsets>() as u32;
             libc::getsockopt(fd, SOL_XDP, XDP_MMAP_OFFSETS, &mut offsets as *mut _ as *mut libc::c_void, &mut optlen);
-
             let fill_map = libc::mmap(ptr::null_mut(), (offsets.fr.desc + (ring_size as u64 * 8)) as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED | libc::MAP_POPULATE, fd, 0x100000000);
             let comp_map = libc::mmap(ptr::null_mut(), (offsets.cr.desc + (ring_size as u64 * 8)) as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED | libc::MAP_POPULATE, fd, 0x180000000);
             let rx_map = libc::mmap(ptr::null_mut(), (offsets.rx.desc + (ring_size as u64 * std::mem::size_of::<XdpDesc>() as u64)) as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED | libc::MAP_POPULATE, fd, 0x000000000);
             let tx_map = libc::mmap(ptr::null_mut(), (offsets.tx.desc + (ring_size as u64 * std::mem::size_of::<XdpDesc>() as u64)) as usize, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED | libc::MAP_POPULATE, fd, 0x080000000);
-
             let rx_ring = XdpRing::new(rx_map, &offsets.rx, ring_size);
             let tx_ring = XdpRing::new(tx_map, &offsets.tx, ring_size);
             let fill_ring = XdpRing::new(fill_map, &offsets.fr, ring_size);
             let comp_ring = XdpRing::new(comp_map, &offsets.cr, ring_size);
-
             let ifindex = {
                 let cname = std::ffi::CString::new(ifname)?;
                 libc::if_nametoindex(cname.as_ptr())
             };
-
             let sxdp = SockAddrXdp {
                 sxdp_family: 44,
                 sxdp_flags: XDP_COPY,
@@ -574,9 +512,7 @@ impl XdpSocket {
                 sxdp_queue_id: queue_id,
                 sxdp_shared_umem_fd: 0,
             };
-
             libc::bind(fd, &sxdp as *const _ as *const libc::sockaddr, std::mem::size_of::<SockAddrXdp>() as u32);
-
             let mut socket = Self {
                 fd,
                 umem_area: umem_area as *mut u8,
@@ -591,25 +527,20 @@ impl XdpSocket {
                 fill_prod: 0,
                 comp_cons: 0,
             };
-
             socket.populate_fill_ring();
             Ok(socket)
         }
     }
-
     pub fn fd(&self) -> i32 {
         self.fd
     }
-
     pub fn is_hugepage(&self) -> bool {
         self.is_hugepage
     }
-
     fn populate_fill_ring(&mut self) {
         let prod = self.fill_prod;
         let ring_mask = self.fill_ring.mask;
         let raw_ring = self.fill_ring.descs as *mut u64;
-
         for i in 0..RX_FRAMES {
             let addr = (i * FRAME_SIZE + FRAME_HEADROOM) as u64;
             // SAFETY: Volatile write of recycled frame address back to fill ring.
@@ -621,7 +552,6 @@ impl XdpSocket {
         fence(Ordering::Release);
         self.fill_ring.set_producer_index(self.fill_prod);
     }
-
     #[inline(always)]
     pub fn poll_read_zerocopy_hints<F>(&mut self, max_batch: usize, mut on_packet: F) -> usize
     where
@@ -632,45 +562,36 @@ impl XdpSocket {
         if available == 0 {
             return 0;
         }
-
         fence(Ordering::Acquire);
         let batch_count = available.min(max_batch).min(BATCH_SIZE);
         let rx_descs = self.rx_ring.descs as *const XdpDesc;
         let fill_descs = self.fill_ring.descs as *mut u64;
-
         for i in 0..batch_count {
             let rx_idx = (self.rx_cons + i as u32) & self.rx_ring.mask;
             // SAFETY: Volatile descriptor load from mapped Rx ring memory.
             let desc = unsafe { ptr::read_volatile(rx_descs.add(rx_idx as usize)) };
             let len = desc.len as usize;
-
             // SAFETY: Accessing packet payload pointer and preceding metadata headroom.
             let (packet_slice, hints) = unsafe {
                 let ptr = self.umem_area.add(desc.addr as usize);
                 let hints = read_nic_hints_from_headroom(ptr, FRAME_HEADROOM);
                 (std::slice::from_raw_parts(ptr, len), hints)
             };
-
             let parsed = wire_simd::parse_one(packet_slice);
             on_packet(packet_slice, &parsed, &hints);
-
             let fill_idx = (self.fill_prod + i as u32) & self.fill_ring.mask;
             // SAFETY: Returning recycled frame address back to fill ring descriptor table.
             unsafe {
                 ptr::write_volatile(fill_descs.add(fill_idx as usize), desc.addr);
             }
         }
-
         self.rx_cons += batch_count as u32;
         self.fill_prod += batch_count as u32;
-
         fence(Ordering::Release);
         self.rx_ring.set_consumer_index(self.rx_cons);
         self.fill_ring.set_producer_index(self.fill_prod);
-
         batch_count
     }
-
     #[inline(always)]
     pub fn poll_read_zerocopy<F>(&mut self, max_batch: usize, mut on_packet: F) -> usize
     where
@@ -680,7 +601,6 @@ impl XdpSocket {
             on_packet(pkt, parsed);
         })
     }
-
     #[inline(always)]
     pub fn poll_read_batch(&mut self, out_packets: &mut [Vec<u8>]) -> usize {
         let rx_prod = self.rx_ring.producer_index();
@@ -688,18 +608,15 @@ impl XdpSocket {
         if available == 0 {
             return 0;
         }
-
         fence(Ordering::Acquire);
         let batch_count = available.min(out_packets.len()).min(BATCH_SIZE);
         let rx_descs = self.rx_ring.descs as *const XdpDesc;
         let fill_descs = self.fill_ring.descs as *mut u64;
-
         for i in 0..batch_count {
             let rx_idx = (self.rx_cons + i as u32) & self.rx_ring.mask;
             // SAFETY: Volatile read from raw descriptor queue array.
             let desc = unsafe { ptr::read_volatile(rx_descs.add(rx_idx as usize)) };
             let len = desc.len as usize;
-
             // SAFETY: Pointer math within valid UMEM address bounds.
             let umem_packet_ptr = unsafe { self.umem_area.add(desc.addr as usize) };
             let target_vec = &mut out_packets[i];
@@ -708,34 +625,27 @@ impl XdpSocket {
             unsafe {
                 ptr::copy_nonoverlapping(umem_packet_ptr, target_vec.as_mut_ptr(), len);
             }
-
             let fill_idx = (self.fill_prod + i as u32) & self.fill_ring.mask;
             // SAFETY: Transferring ownership back to fill ring slot.
             unsafe {
                 ptr::write_volatile(fill_descs.add(fill_idx as usize), desc.addr);
             }
         }
-
         self.rx_cons += batch_count as u32;
         self.fill_prod += batch_count as u32;
-
         fence(Ordering::Release);
         self.rx_ring.set_consumer_index(self.rx_cons);
         self.fill_ring.set_producer_index(self.fill_prod);
-
         batch_count
     }
-
     pub fn write_async(&mut self, buf: &[u8]) -> std::io::Result<Option<usize>> {
         self.reclaim_completions();
         let t_tx = probes::stage_begin(StageId::TxEnqueue);
-
         let tx_cons = self.tx_ring.consumer_index();
         if self.tx_prod - tx_cons >= self.tx_ring.size {
             probes::stage_end(StageId::TxEnqueue, t_tx);
             return Ok(None);
         }
-
         let tx_addr = match self.tx_recycle_ring.pop() {
             Some(addr) => addr,
             None => {
@@ -743,14 +653,12 @@ impl XdpSocket {
                 return Ok(None);
             }
         };
-
         // SAFETY: Pointer math inside mapped memory area.
         let umem_packet_ptr = unsafe { self.umem_area.add(tx_addr as usize) };
         // SAFETY: Direct non-overlapping copy of outbound packet to UMEM segment.
         unsafe {
             ptr::copy_nonoverlapping(buf.as_ptr(), umem_packet_ptr, buf.len());
         }
-
         let frame_index = (self.tx_prod & self.tx_ring.mask) as usize;
         let tx_descs = self.tx_ring.descs as *mut XdpDesc;
         let desc = XdpDesc {
@@ -758,25 +666,20 @@ impl XdpSocket {
             len: buf.len() as u32,
             options: 0,
         };
-
         // SAFETY: Volatile queue of Tx descriptor to the ring descriptor.
         unsafe {
             ptr::write_volatile(tx_descs.add(frame_index), desc);
         }
-
         self.tx_prod += 1;
         fence(Ordering::Release);
         self.tx_ring.set_producer_index(self.tx_prod);
-
         // SAFETY: Socket flush notification kick.
         unsafe {
             libc::send(self.fd, ptr::null(), 0, libc::MSG_DONTWAIT);
         }
-
         probes::stage_end(StageId::TxEnqueue, t_tx);
         Ok(Some(buf.len()))
     }
-
     fn reclaim_completions(&mut self) {
         let t_reap = probes::stage_begin(StageId::TxCompleteReap);
         let comp_prod = self.comp_ring.producer_index();
@@ -785,24 +688,20 @@ impl XdpSocket {
             probes::stage_end(StageId::TxCompleteReap, t_reap);
             return;
         }
-
         fence(Ordering::Acquire);
         let comp_descs = self.comp_ring.descs as *const u64;
-
         for i in 0..available {
             let idx = (self.comp_cons + i) & self.comp_ring.mask;
             // SAFETY: Volatile read of completed frame descriptor from completion ring.
             let completed_addr = unsafe { ptr::read_volatile(comp_descs.add(idx as usize)) };
             self.tx_recycle_ring.push(completed_addr);
         }
-
         self.comp_cons += available;
         fence(Ordering::Release);
         self.comp_ring.set_consumer_index(self.comp_cons);
         probes::stage_end(StageId::TxCompleteReap, t_reap);
     }
 }
-
 impl Drop for XdpSocket {
     fn drop(&mut self) {
         // SAFETY: Memory unmapping and file descriptor close operations.

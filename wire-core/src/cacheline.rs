@@ -1,8 +1,6 @@
 use std::sync::atomic::{AtomicU64, AtomicU32};
-
 #[repr(C, align(64))]
 pub struct Aligned64<T>(pub T);
-
 impl<T> std::ops::Deref for Aligned64<T> {
     type Target = T;
     #[inline(always)]
@@ -10,14 +8,12 @@ impl<T> std::ops::Deref for Aligned64<T> {
         &self.0
     }
 }
-
 impl<T> std::ops::DerefMut for Aligned64<T> {
     #[inline(always)]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
-
 #[repr(C, align(64))]
 pub struct WorkerStats {
     pub rx_packets: AtomicU64,
@@ -28,7 +24,6 @@ pub struct WorkerStats {
     pub poll_spins: AtomicU64,
     _pad: [u8; 16],
 }
-
 impl Default for WorkerStats {
     fn default() -> Self {
         Self {
@@ -42,7 +37,6 @@ impl Default for WorkerStats {
         }
     }
 }
-
 #[repr(C, align(64))]
 pub struct CachePaddedRingIndices {
     pub prod: AtomicU32,
@@ -50,7 +44,6 @@ pub struct CachePaddedRingIndices {
     pub cons: AtomicU32,
     _pad2: [u8; 60],
 }
-
 impl Default for CachePaddedRingIndices {
     fn default() -> Self {
         Self {
@@ -61,7 +54,6 @@ impl Default for CachePaddedRingIndices {
         }
     }
 }
-
 #[inline(always)]
 pub fn cpu_relax() {
     #[cfg(target_arch = "x86_64")]
@@ -73,19 +65,15 @@ pub fn cpu_relax() {
         core::hint::spin_loop();
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn cacheline_alignments() {
         assert_eq!(std::mem::align_of::<WorkerStats>(), 64);
         assert_eq!(std::mem::size_of::<WorkerStats>() % 64, 0);
-
         assert_eq!(std::mem::align_of::<CachePaddedRingIndices>(), 64);
         assert_eq!(std::mem::size_of::<CachePaddedRingIndices>() % 64, 0);
-
         assert_eq!(std::mem::align_of::<Aligned64<u64>>(), 64);
         assert_eq!(std::mem::size_of::<Aligned64<u64>>(), 64);
     }

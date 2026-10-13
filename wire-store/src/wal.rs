@@ -3,14 +3,11 @@ use std::io::{Error, ErrorKind, Read, Result};
 use std::os::unix::io::RawFd;
 use std::ptr;
 use crate::crc::crc32c;
-
 pub const SECTOR_SIZE: usize = 4096;
 pub const BUFFER_CAPACITY: usize = 2 * 1024 * 1024;
 pub const WAL_MAGIC: u32 = 0x57414C35;
-
 pub const OP_SET: u8 = 1;
 pub const OP_DEL: u8 = 2;
-
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WalHeader {
@@ -22,7 +19,6 @@ pub struct WalHeader {
     pub op: u8,
     pub _pad: [u8; 7],
 }
-
 pub struct WalWriter {
     fd: RawFd,
     buf: *mut u8,
@@ -30,11 +26,9 @@ pub struct WalWriter {
     flushed_offset: u64,
     seq: u64,
 }
-
 impl WalWriter {
     pub fn open(path: &str) -> Result<Self> {
         let c_path = std::ffi::CString::new(path).map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
-        
         // SAFETY: System call opening file with O_DIRECT, O_SYNC, and O_RDWR.
         let fd = unsafe {
             libc::open(
@@ -43,11 +37,9 @@ impl WalWriter {
                 0o644,
             )
         };
-
         if fd < 0 {
             return Err(Error::last_os_error());
         }
-
         let mut aligned_ptr: *mut libc::c_void = ptr::null_mut();
         // SAFETY: Allocating sector-aligned memory buffer for Direct I/O writes.
         let ret = unsafe { libc::posix_memalign(&mut aligned_ptr, SECTOR_SIZE, BUFFER_CAPACITY) };
@@ -56,11 +48,9 @@ impl WalWriter {
             unsafe { libc::close(fd) };
             return Err(Error::from_raw_os_error(ret));
         }
-
         // SAFETY: Seeking to end of file to determine current file offset.
         let file_len = unsafe { libc::lseek(fd, 0, libc::SEEK_END) };
         let flushed_offset = if file_len < 0 { 0 } else { file_len as u64 };
-
         Ok(Self {
             fd,
             buf: aligned_ptr as *mut u8,
@@ -69,32 +59,25 @@ impl WalWriter {
             seq: 0,
         })
     }
-
     #[inline(always)]
     pub fn append_set(&mut self, key: &[u8], val: &[u8]) -> Result<u64> {
         self.append_record(OP_SET, key, val)
     }
-
     #[inline(always)]
     pub fn append_del(&mut self, key: &[u8]) -> Result<u64> {
         self.append_record(OP_DEL, key, &[])
     }
-
     fn append_record(&mut self, op: u8, key: &[u8], val: &[u8]) -> Result<u64> {
         let record_payload_len = key.len() + val.len();
         let total_record_len = std::mem::size_of::<WalHeader>() + record_payload_len;
-
         if self.buf_head + total_record_len > BUFFER_CAPACITY {
             self.flush_aligned_sectors()?;
         }
-
         if total_record_len > BUFFER_CAPACITY {
             return Err(Error::new(ErrorKind::InvalidInput, "Record exceeds maximum buffer capacity"));
         }
-
         self.seq += 1;
         let seq = self.seq;
-
         let mut header = WalHeader {
             magic: WAL_MAGIC,
             crc: 0,
@@ -104,13 +87,11 @@ impl WalWriter {
             op,
             _pad: [0; 7],
         };
-
         let mut crc_payload = Vec::with_capacity(record_payload_len + 1);
         crc_payload.push(op);
         crc_payload.extend_from_slice(key);
         crc_payload.extend_from_slice(val);
         header.crc = crc32c(&crc_payload);
-
         let header_bytes = unsafe {
             // SAFETY: Transmuting packed POD header struct to immutable byte slice.
             std::slice::from_raw_parts(
@@ -118,7 +99,6 @@ impl WalWriter {
                 std::mem::size_of::<WalHeader>(),
             )
         };
-
         // SAFETY: Copying header and payload directly into aligned Direct I/O memory buffer.
         unsafe {
             let target_ptr = self.buf.add(self.buf_head);
@@ -126,22 +106,17 @@ impl WalWriter {
             ptr::copy_nonoverlapping(key.as_ptr(), target_ptr.add(header_bytes.len()), key.len());
             ptr::copy_nonoverlapping(val.as_ptr(), target_ptr.add(header_bytes.len() + key.len()), val.len());
         }
-
         self.buf_head += total_record_len;
-
         if self.buf_head >= SECTOR_SIZE * 16 {
             self.flush_aligned_sectors()?;
         }
-
         Ok(seq)
     }
-
     pub fn flush_aligned_sectors(&mut self) -> Result<()> {
         let write_size = self.buf_head & !(SECTOR_SIZE - 1);
         if write_size == 0 {
             return Ok(());
         }
-
         // SAFETY: Performing direct aligned write to storage descriptor via pwrite.
         let written = unsafe {
             libc::pwrite(
@@ -151,14 +126,11 @@ impl WalWriter {
                 self.flushed_offset as libc::off_t,
             )
         };
-
         if written < 0 {
             return Err(Error::last_os_error());
         }
-
         let written_bytes = written as usize;
         self.flushed_offset += written_bytes as u64;
-
         let remaining = self.buf_head - written_bytes;
         if remaining > 0 {
             // SAFETY: Relocating unwritten unaligned residue to start of aligned buffer.
@@ -167,10 +139,8 @@ impl WalWriter {
             }
         }
         self.buf_head = remaining;
-
         Ok(())
     }
-
     pub fn sync(&mut self) -> Result<()> {
         if self.buf_head > 0 {
             let pad_len = (SECTOR_SIZE - (self.buf_head % SECTOR_SIZE)) % SECTOR_SIZE;
@@ -181,7 +151,6 @@ impl WalWriter {
                 }
                 self.buf_head += pad_len;
             }
-
             // SAFETY: Writing remaining padded sector to disk.
             let written = unsafe {
                 libc::pwrite(
@@ -191,25 +160,20 @@ impl WalWriter {
                     self.flushed_offset as libc::off_t,
                 )
             };
-
             if written < 0 {
                 return Err(Error::last_os_error());
             }
-
             self.flushed_offset += written as u64;
             self.buf_head = 0;
         }
-
         // SAFETY: Synchronizing hardware disk caches with storage device.
         let ret = unsafe { libc::fdatasync(self.fd) };
         if ret < 0 {
             return Err(Error::last_os_error());
         }
-
         Ok(())
     }
 }
-
 impl Drop for WalWriter {
     fn drop(&mut self) {
         let _ = self.sync();
@@ -220,9 +184,7 @@ impl Drop for WalWriter {
         }
     }
 }
-
 pub struct WalReader;
-
 impl WalReader {
     pub fn replay<F>(path: &str, mut on_record: F) -> Result<u64>
     where
@@ -231,38 +193,30 @@ impl WalReader {
         let mut file = OpenOptions::new().read(true).open(path)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
-
         let mut offset = 0;
         let mut last_seq = 0;
         let hdr_size = std::mem::size_of::<WalHeader>();
-
         while offset + hdr_size <= buffer.len() {
             let header = unsafe {
                 // SAFETY: Reading packed POD WalHeader from buffer bounds.
                 ptr::read_unaligned(buffer[offset..].as_ptr() as *const WalHeader)
             };
-
             if header.magic != WAL_MAGIC {
                 break;
             }
-
             let total_len = hdr_size + header.key_len as usize + header.val_len as usize;
             if offset + total_len > buffer.len() {
                 break;
             }
-
             let key_start = offset + hdr_size;
             let key_end = key_start + header.key_len as usize;
             let val_end = key_end + header.val_len as usize;
-
             let key = &buffer[key_start..key_end];
             let val = &buffer[key_end..val_end];
-
             let mut crc_payload = Vec::with_capacity(key.len() + val.len() + 1);
             crc_payload.push(header.op);
             crc_payload.extend_from_slice(key);
             crc_payload.extend_from_slice(val);
-
             if crc32c(&crc_payload) == header.crc {
                 on_record(header.op, key, val)?;
                 last_seq = header.seq;
@@ -271,7 +225,6 @@ impl WalReader {
                 break;
             }
         }
-
         Ok(last_seq)
     }
 }

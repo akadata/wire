@@ -1,6 +1,5 @@
 use crate::varint::VarInt;
 use smallvec::SmallVec;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Frame<'a> {
     Padding { len: usize },
@@ -77,7 +76,6 @@ pub enum Frame<'a> {
     },
     HandshakeDone,
 }
-
 impl<'a> Frame<'a> {
     pub fn parse(buf: &'a [u8]) -> Option<(Self, usize)> {
         if buf.is_empty() {
@@ -85,7 +83,6 @@ impl<'a> Frame<'a> {
         }
         let (frame_type, mut offset) = VarInt::decode(buf)?;
         let ftype = frame_type.0;
-
         match ftype {
             0x00 => {
                 let mut p_len = 1;
@@ -104,22 +101,18 @@ impl<'a> Frame<'a> {
                 offset += rc_len;
                 let (first_range, f_len) = VarInt::decode(&buf[offset..])?;
                 offset += f_len;
-
                 let mut ranges = SmallVec::new();
                 let mut current_smallest = largest_ack.0.saturating_sub(first_range.0);
-
                 for _ in 0..range_count.0 {
                     let (gap, g_len) = VarInt::decode(&buf[offset..])?;
                     offset += g_len;
                     let (ack_range, r_len) = VarInt::decode(&buf[offset..])?;
                     offset += r_len;
-
                     let range_largest = current_smallest.saturating_sub(gap.0 + 2);
                     let range_smallest = range_largest.saturating_sub(ack_range.0);
                     ranges.push((range_smallest, range_largest));
                     current_smallest = range_smallest;
                 }
-
                 Some((
                     Frame::Ack {
                         largest_acknowledged: largest_ack.0,
@@ -187,10 +180,8 @@ impl<'a> Frame<'a> {
                 let has_off = (ftype & 0x04) != 0;
                 let has_len = (ftype & 0x02) != 0;
                 let fin = (ftype & 0x01) != 0;
-
                 let (stream_id, s_len) = VarInt::decode(&buf[offset..])?;
                 offset += s_len;
-
                 let stream_off = if has_off {
                     let (o, o_len) = VarInt::decode(&buf[offset..])?;
                     offset += o_len;
@@ -198,7 +189,6 @@ impl<'a> Frame<'a> {
                 } else {
                     0
                 };
-
                 let data_len = if has_len {
                     let (l, l_len) = VarInt::decode(&buf[offset..])?;
                     offset += l_len;
@@ -206,13 +196,11 @@ impl<'a> Frame<'a> {
                 } else {
                     buf.len() - offset
                 };
-
                 if buf.len() < offset + data_len {
                     return None;
                 }
                 let data = &buf[offset..offset + data_len];
                 offset += data_len;
-
                 Some((
                     Frame::Stream {
                         stream_id: stream_id.0,
@@ -293,7 +281,6 @@ impl<'a> Frame<'a> {
             _ => None,
         }
     }
-
     pub fn encode(&self, out: &mut Vec<u8>) {
         match self {
             Frame::Padding { len } => {
@@ -313,7 +300,6 @@ impl<'a> Frame<'a> {
                 VarInt(*ack_delay).encode_vec(out);
                 VarInt(ranges.len() as u64).encode_vec(out);
                 VarInt(*first_ack_range).encode_vec(out);
-
                 let mut current_smallest = largest_acknowledged.saturating_sub(*first_ack_range);
                 for &(range_smallest, range_largest) in ranges {
                     let gap = current_smallest.saturating_sub(range_largest + 2);

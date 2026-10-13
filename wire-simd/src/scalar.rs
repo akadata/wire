@@ -1,6 +1,5 @@
 use wire_core::types::PackedTuple;
 use crate::ParsedL4;
-
 #[inline(always)]
 pub fn parse_one_scalar(frame: &[u8]) -> ParsedL4 {
     if frame.len() < 54 {
