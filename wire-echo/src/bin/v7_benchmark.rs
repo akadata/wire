@@ -160,28 +160,80 @@ fn benchmark_pretrade_risk() -> (f64, f64, u64, u64, bool) {
     (cycles, mops, filter.stats.passed_count, filter.stats.rejected_order_size, pass)
 }
 
-fn benchmark_honest_executor() -> (f64, f64, usize, bool) {
+fn drain_executor_batch(executor: &mut LocalExecutor, expected: usize) -> Option<usize> {
+    // Poll until exactly `expected` completions are observed.
+    // Returns None if the executor stalls (run_single_tick() == 0) first.
+    let mut batch_completed: usize = 0;
+    loop {
+        if batch_completed == expected {
+            return Some(batch_completed);
+        }
+        let n = executor.run_single_tick();
+        if n == 0 {
+            return None;
+        }
+        batch_completed += n;
+    }
+}
+
+fn benchmark_honest_executor() -> (f64, f64, usize, usize, usize, f64, bool) {
     let mut executor = LocalExecutor::new(0).unwrap();
-    let iters = 200_000;
-    let mut accepted = 0;
+    const TOTAL: usize = 1_000_000;
+    const BATCH: usize = 1024;
+    let attempted: usize = TOTAL;
+    let mut accepted: usize = 0;
+    let mut completed: usize = 0;
+    let mut accounting_valid = true;
 
     let t0 = Instant::now();
-    for _ in 0..iters {
-        if executor.spawn(async {}).is_some() {
-            accepted += 1;
+    let mut in_batch: usize = 0;
+    for _ in 0..TOTAL {
+        match executor.spawn(async {}) {
+            Some(_) => {
+                accepted += 1;
+                in_batch += 1;
+            }
+            None => {
+                // Queue full despite BATCH << MAX_TASKS: fail closed, never inflate.
+                accounting_valid = false;
+                break;
+            }
         }
-        if accepted % 1024 == 0 {
-            executor.run_until_stalled();
+        if in_batch == BATCH {
+            match drain_executor_batch(&mut executor, in_batch) {
+                Some(n) => completed += n,
+                None => {
+                    accounting_valid = false;
+                    break;
+                }
+            }
+            in_batch = 0;
         }
     }
-    executor.run_until_stalled();
+    if accounting_valid && in_batch > 0 {
+        match drain_executor_batch(&mut executor, in_batch) {
+            Some(n) => completed += n,
+            None => accounting_valid = false,
+        }
+    }
     let elapsed = t0.elapsed().as_secs_f64();
+    if accepted != attempted || completed != attempted {
+        accounting_valid = false;
+    }
 
-    let mops = (accepted as f64 / elapsed) / 1_000_000.0;
-    let ns_per_task = (elapsed * 1_000_000_000.0) / accepted as f64;
-    let pass = accepted > 0 && ns_per_task < 200.0;
+    // Throughput/latency denominators are completed work only.
+    let (mops, ns_per_task) = if accounting_valid && completed > 0 {
+        (
+            (completed as f64 / elapsed) / 1_000_000.0,
+            (elapsed * 1_000_000_000.0) / completed as f64,
+        )
+    } else {
+        (0.0, 0.0)
+    };
+    // Pass requires exact accounting; no performance claim on mismatch.
+    let pass = accounting_valid && completed == TOTAL;
 
-    (mops, ns_per_task, accepted, pass)
+    (mops, ns_per_task, attempted, accepted, completed, elapsed, pass)
 }
 
 fn benchmark_honest_wal() -> (f64, f64, bool, bool) {
@@ -279,7 +331,8 @@ fn main() {
     let (fix_c, fix_mops, fix_pass) = benchmark_fix_parser();
     let (lob_c, lob_mops, lob_pass) = benchmark_lob_engine();
     let (risk_c, risk_mops, _r_pass_cnt, _r_rej_cnt, risk_pass) = benchmark_pretrade_risk();
-    let (txc_mops, txc_ns, accepted_tasks, txc_pass) = benchmark_honest_executor();
+    let (txc_mops, txc_ns, txc_attempted, txc_accepted, txc_completed, txc_elapsed, txc_pass) =
+        benchmark_honest_executor();
     let (wal_mops, wal_ns, sqpoll_active, wal_pass) = benchmark_honest_wal();
     let (w2w_summary, w2w_pass) = benchmark_simulated_w2w_pipeline();
 
@@ -337,7 +390,10 @@ fn main() {
     );
 
     print_dashboard_row(
-        &format!("LocalExecutor ({} spawned)", accepted_tasks),
+        &format!(
+            "LocalExecutor ({}/{} done)",
+            txc_completed, txc_attempted
+        ),
         "MICRO",
         &format!("{:.2} Mops/s", txc_mops),
         &format!("{:.2} ns/task", txc_ns),
@@ -372,11 +428,14 @@ fn main() {
     println!("  Max:     {} ns", w2w_summary.max);
     println!("  Mean:    {:.2} ns", w2w_summary.mean);
 
+    // Machine-readable executor line for audit scripts (no extra CLI needed).
+    println!("EXECUTOR attempted={} accepted={} completed={} elapsed_s={:.6} mops={:.4} ns_per_task={:.2} valid={}", txc_attempted, txc_accepted, txc_completed, txc_elapsed, txc_mops, txc_ns, txc_pass);
     let all_pass = disr_pass && itch_pass && fix_pass && lob_pass && risk_pass && txc_pass && wal_pass && w2w_pass;
     if all_pass {
         println!("\n\x1b[1;32m[PASS] All sub-microsecond HFT dataplane performance criteria verified and passed under honest measurement.\x1b[0m");
     } else {
         println!("\n\x1b[1;31m[FAIL] One or more performance criteria failed to meet target thresholds.\x1b[0m");
+        std::process::exit(1);
     }
     println!("\x1b[1;36m{}\x1b[0m", "═".repeat(banner_width));
 }

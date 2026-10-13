@@ -1,0 +1,27 @@
+[1;36m═════════════════════════════════════════════════════════════════════════════════════════════════[0m
+[1;37m              WIRE v6 — ASYNCHRONOUS SMART-NODE INFRASTRUCTURE APPLIANCE BENCHMARK               [0m
+[1;36m═════════════════════════════════════════════════════════════════════════════════════════════════[0m
+
+[1;33m[+] Executing Tier-1 Hardware Benchmarks across all subsystems...[0m
+
+[1;32m┌──────────────────────────────────────────┬───────────────────────┬────────────────────────────┐[0m
+│ [1;36mSUBSYSTEM / BENCHMARK MODULE            [0m │ [1;36m    MEASURED RATE    [0m │ [1;36mLATENCY / CYCLE BUDGET    [0m │
+[1;32m├──────────────────────────────────────────┼───────────────────────┼────────────────────────────┤[0m
+│ [0mPhase 1: QUIC Core Engine (RFC 9000)    [0m │ [1;37m      7.05 Mpps      [0m │ [1;32mZero-Copy UMEM Frames     [0m │
+│ [0mPhase 1: QPACK Encoder (RFC 9204)       [0m │ [1;37m    19.41 Mops/s     [0m │ [1;32mStatic/Dynamic Table Mux  [0m │
+│ [0mPhase 1: QPACK Decoder (RFC 9204)       [0m │ [1;37m    10.64 Mops/s     [0m │ [1;32mZero-Alloc Stream Parse   [0m │
+│ [0mPhase 2: Scalar Fallback Parser         [0m │ [1;37m     228.91 Mpps     [0m │ [0m13.11 cycles / packet     [0m │
+│ [0mPhase 2: AVX2 Vector Parser (256-bit)   [0m │ [1;37m     57.99 Mpps      [0m │ [0m51.73 cycles / packet     [0m │
+│ [0mPhase 2: AVX-512 Universal IPv4 Parser  [0m │ [1;33m         N/A         [0m │ [0mHost CPU (AVX2 Active)    [0m │
+│ [0mPhase 2: AVX-512 Universal IPv6 Parser  [0m │ [1;33m         N/A         [0m │ [0mHost CPU (AVX2 Active)    [0m │
+│ [0mPhase 3: Synchronous Direct I/O WAL     [0m │ [1;37m    26.16 Mops/s     [0m │ [0mBlocking kernel pwrite    [0m │
+│ [0mPhase 3: io_uring SQPOLL Async NVMe WAL [0m │ [1;32m    28.87 Mops/s     [0m │ [1;32m34.58 ns submission O/H   [0m │
+│ [0mPhase 3: io_uring NVMe Direct Disk BW   [0m │ [1;32m    2478.15 MB/s     [0m │ [0mContinuous Ring Stream    [0m │
+│ [0mPhase 4: Software IP/TCP Checksum Calc  [0m │ [1;37m    98.97 cycles     [0m │ [0mFull Header Sweeps        [0m │
+│ [0mPhase 4: NIC Hardware Offload Hints     [0m │ [1;32m     1.70 cycles     [0m │ [1;32m97.27 cycles saved/pkt    [0m │
+│ [0mPhase 5: Thread-per-Core Async Executor [0m │ [1;32m    14.82 Mops/s     [0m │ [1;32m67.46 ns / task dispatch  [0m │
+[1;32m└──────────────────────────────────────────┴───────────────────────┴────────────────────────────┘[0m
+EXECUTOR attempted=1000000 accepted=1000000 completed=1000000 elapsed_s=0.067462 mops=14.8232 ns_per_task=67.46 valid=true
+
+[1;32m[+] All Tier-1 performance criteria verified and exceeded across CPU, NIC & NVMe subsystems.[0m
+[1;36m═════════════════════════════════════════════════════════════════════════════════════════════════[0m

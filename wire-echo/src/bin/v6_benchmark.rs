@@ -193,18 +193,75 @@ fn benchmark_wal_engines() -> (f64, f64, f64, f64) {
     let _ = std::fs::remove_file(async_path);
     (sync_mops, async_mops, async_bw_mb, avg_ns_overhead)
 }
-fn benchmark_runtime_executor() -> (f64, f64) {
-    let mut executor = LocalExecutor::new(0).unwrap();
-    let iters = 1_000_000;
-    let t0 = Instant::now();
-    for _ in 0..iters {
-        executor.spawn(async {});
+fn drain_batch(executor: &mut LocalExecutor, expected: usize) -> Option<usize> {
+    // Poll until exactly `expected` completions are observed.
+    // Returns None if the executor stalls (run_single_tick() == 0) first.
+    let mut batch_completed: usize = 0;
+    loop {
+        if batch_completed == expected {
+            return Some(batch_completed);
+        }
+        let n = executor.run_single_tick();
+        if n == 0 {
+            return None;
+        }
+        batch_completed += n;
     }
-    executor.run_until_stalled();
+}
+
+fn benchmark_runtime_executor() -> (f64, f64, usize, usize, usize, f64, bool) {
+    let mut executor = LocalExecutor::new(0).unwrap();
+    const TOTAL: usize = 1_000_000;
+    const BATCH: usize = 1024;
+    let attempted: usize = TOTAL;
+    let mut accepted: usize = 0;
+    let mut completed: usize = 0;
+    let mut accounting_valid = true;
+    let t0 = Instant::now();
+    let mut in_batch: usize = 0;
+    for _ in 0..TOTAL {
+        match executor.spawn(async {}) {
+            Some(_) => {
+                accepted += 1;
+                in_batch += 1;
+            }
+            None => {
+                // Queue full despite BATCH << MAX_TASKS: fail closed, never inflate.
+                accounting_valid = false;
+                break;
+            }
+        }
+        if in_batch == BATCH {
+            match drain_batch(&mut executor, in_batch) {
+                Some(n) => completed += n,
+                None => {
+                    accounting_valid = false;
+                    break;
+                }
+            }
+            in_batch = 0;
+        }
+    }
+    if accounting_valid && in_batch > 0 {
+        match drain_batch(&mut executor, in_batch) {
+            Some(n) => completed += n,
+            None => accounting_valid = false,
+        }
+    }
     let elapsed = t0.elapsed().as_secs_f64();
-    let txc_mops = (iters as f64 / elapsed) / 1_000_000.0;
-    let ns_per_task = (elapsed * 1_000_000_000.0) / iters as f64;
-    (txc_mops, ns_per_task)
+    if accepted != attempted || completed != attempted {
+        accounting_valid = false;
+    }
+    // Throughput/latency denominators are completed work only.
+    let (txc_mops, ns_per_task) = if accounting_valid && completed > 0 {
+        (
+            (completed as f64 / elapsed) / 1_000_000.0,
+            (elapsed * 1_000_000_000.0) / completed as f64,
+        )
+    } else {
+        (0.0, 0.0)
+    };
+    (txc_mops, ns_per_task, attempted, accepted, completed, elapsed, accounting_valid)
 }
 fn benchmark_nic_offload() -> (f64, f64) {
     let frame = build_synthetic_tcp_frame(8080, 23456);
@@ -261,7 +318,8 @@ fn main() {
     let (scalar_c, avx2_c, avx512_ipv4_c, avx512_ipv6_c) = benchmark_simd_parsers();
     let (quic_mpps, qpack_enc, qpack_dec) = benchmark_quic_engine();
     let (sync_wal_mops, async_wal_mops, async_wal_bw, wal_overhead_ns) = benchmark_wal_engines();
-    let (txc_mops, txc_latency_ns) = benchmark_runtime_executor();
+    let (txc_mops, txc_latency_ns, txc_attempted, txc_accepted, txc_completed, txc_elapsed, txc_valid) =
+        benchmark_runtime_executor();
     let (sw_csum_c, hw_offload_c) = benchmark_nic_offload();
     println!("\x1b[1;32m┌{}┬{}┬{}┐\x1b[0m", "─".repeat(42), "─".repeat(23), "─".repeat(28));
     print_row("SUBSYSTEM / BENCHMARK MODULE", "\x1b[1;36m", "MEASURED RATE", "\x1b[1;36m", "LATENCY / CYCLE BUDGET", "\x1b[1;36m");
@@ -290,8 +348,20 @@ fn main() {
     print_row("Phase 3: io_uring NVMe Direct Disk BW", "\x1b[0m", &format!("{:.2} MB/s", async_wal_bw), "\x1b[1;32m", "Continuous Ring Stream", "\x1b[0m");
     print_row("Phase 4: Software IP/TCP Checksum Calc", "\x1b[0m", &format!("{:.2} cycles", sw_csum_c), "\x1b[1;37m", "Full Header Sweeps", "\x1b[0m");
     print_row("Phase 4: NIC Hardware Offload Hints", "\x1b[0m", &format!("{:.2} cycles", hw_offload_c), "\x1b[1;32m", &format!("{:.2} cycles saved/pkt", sw_csum_c - hw_offload_c), "\x1b[1;32m");
-    print_row("Phase 5: Thread-per-Core Async Executor", "\x1b[0m", &format!("{:.2} Mops/s", txc_mops), "\x1b[1;32m", &format!("{:.2} ns / task dispatch", txc_latency_ns), "\x1b[1;32m");
+    if txc_valid {
+        print_row("Phase 5: Thread-per-Core Async Executor", "\x1b[0m", &format!("{:.2} Mops/s", txc_mops), "\x1b[1;32m", &format!("{:.2} ns / task dispatch", txc_latency_ns), "\x1b[1;32m");
+    } else {
+        print_row("Phase 5: Thread-per-Core Async Executor [FAIL]", "\x1b[0m", "0.00 Mops/s", "\x1b[1;31m", "accounting mismatch", "\x1b[1;31m");
+    }
     println!("\x1b[1;32m└{}┴{}┴{}┘\x1b[0m", "─".repeat(42), "─".repeat(23), "─".repeat(28));
+    // Machine-readable executor line for audit scripts (no extra CLI needed).
+    println!("EXECUTOR attempted={} accepted={} completed={} elapsed_s={:.6} mops={:.4} ns_per_task={:.2} valid={}", txc_attempted, txc_accepted, txc_completed, txc_elapsed, txc_mops, txc_latency_ns, txc_valid);
+    if !txc_valid {
+        eprintln!("[FAIL] executor accounting mismatch: attempted={} accepted={} completed={} (require 1000000/1000000/1000000)", txc_attempted, txc_accepted, txc_completed);
+        println!("\n\x1b[1;31m[FAIL] executor benchmark failed accounting validation; no performance claim is made.\x1b[0m");
+        println!("\x1b[1;36m{}\x1b[0m", "═".repeat(banner_width));
+        std::process::exit(1);
+    }
     println!("\n\x1b[1;32m[+] All Tier-1 performance criteria verified and exceeded across CPU, NIC & NVMe subsystems.\x1b[0m");
     println!("\x1b[1;36m{}\x1b[0m", "═".repeat(banner_width));
 }
