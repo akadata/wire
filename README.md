@@ -83,7 +83,7 @@ drains; every run must prove `attempted == accepted == completed ==
 1,000,000` with throughput/latency computed over *completed* work, or the
 binary prints `[FAIL]` and exits non-zero. (2) A `drain_all()` fast path —
 one guard + one ring submit per drain instead of ~16 of each per batch
-(15,632 → 977 syscalls per 1M tasks). (3) Inline task futures (one fewer
+(15,625 → 977 syscalls per 1M tasks). (3) Inline task futures (one fewer
 alloc per spawn) and a wake-during-poll re-queue fix, with unit tests.
 
 **Why.** A benchmark that counts work it never did is advertising, not

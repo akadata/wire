@@ -9,7 +9,7 @@ everything below is AKADATA-measured on Homer.
 the queue only holds 4,096 — counting ~244x phantom work. We fixed the
 accounting (all runs must prove `attempted == accepted == completed ==
 1,000,000` or exit non-zero), then made the executor genuinely faster
-(~1.7x: ~15.5 → ~26.5 Mops/s single-threaded) by collapsing 15,632
+(~1.7x: ~15.5 → ~26.5 Mops/s single-threaded) by collapsing 15,625
 `io_uring_enter` syscalls per 1M tasks down to 977, plus a real
 wake-during-poll correctness fix. All of it measured on a busy shared
 workstation, baseline and improved run back-to-back under the same load.
@@ -55,8 +55,8 @@ Per 1,000,000 `async {}` tasks, single `LocalExecutor`, `BATCH = 1024`:
  BEFORE (per 1024-task batch: ~16 ticks of 64)
    spawn 1024 ─▶ tick ─▶ tick ─▶ … ─▶ tick (16×)
                         │                each tick = TLS guard pair + io_uring_enter syscall
-   syscalls per 1M tasks: 16 × 977  = 15,632
-   TLS guard pairs:       16 × 977  = 15,632
+   syscalls per 1M tasks: 976×16 + 9 (final 576-task batch) = 15,625
+   TLS guard pairs:       same 15,625 (one per tick)
 
  AFTER (per 1024-task batch: 1 drain)
    spawn 1024 ─▶ drain_all ─▶ done (exact count checked)
@@ -64,7 +64,7 @@ Per 1,000,000 `async {}` tasks, single `LocalExecutor`, `BATCH = 1024`:
    TLS guard pairs:        1 × 977  = 977      (−93.75%)
 ```
 
-Rough attribution (labeled estimate, not a measurement): 14,655 eliminated
+Rough attribution (labeled estimate, not a measurement): 14,648 eliminated
 syscalls × ~1.9 µs per `io_uring_enter` on this hardened kernel
 (IBRS/IBPB mitigations) ≈ ~28 ms — essentially the entire ~65 ms → ~37 ms
 per-1M delta. The benchmark still spawns, polls, and completes 1,000,000

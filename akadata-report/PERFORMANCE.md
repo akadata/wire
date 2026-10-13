@@ -53,8 +53,9 @@ figures.
   zeroed metrics + non-zero exit). Same contract, same BATCH=1024,
   same 1M/1M/1M requirement. No CLI added.
 
-Why ~1.7x and not ~5%: the old drain issued **15,632**
-`io_uring_enter` syscalls per 1M tasks (16 per batch); the new one issues
+Why ~1.7x and not ~5%: the old drain issued **15,625**
+`io_uring_enter` syscalls per 1M tasks (16 per full batch, 9 for the final
+576-task partial batch); the new one issues
 **977** (1 per batch). On this kernel (heavy IBRS/IBPB mitigations)
 each enter costs on the order of a microsecond — that syscall collapse
 accounts for essentially the whole ~28 ms saved per 1M tasks. The
