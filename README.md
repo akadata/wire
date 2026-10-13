@@ -4,6 +4,37 @@
 
 </div>
 
+> ## ⚠️ STOP — DO NOT CLONE THIS REPO FOR USE
+>
+> **This fork exists for one reason: to audit the original and shrink its
+> author's nose. It is a forensic exhibit, not a product.**
+>
+> - **The code is not production quality.** Our read-only audit proved a
+>   risk filter that waves through unconfigured symbols, an order book that
+>   collides IDs and prices at `& 65535` and quotes dead prices indefinitely,
+>   parsers that report wrong data as valid, no sequence tracking, and WAL
+>   recovery that restarts numbering after every crash. Full receipts:
+>   [`akadata-report/FAULT_REPORT.md`](akadata-report/FAULT_REPORT.md).
+> - **The performance claims were false.** The headline benchmark counted a
+>   million tasks through a four-thousand slot (~244x phantom throughput);
+>   the "vector" parsers are wide loads with scalar parsing, and the AVX2
+>   path measures ~4x *slower* than scalar. Proof: [`BENCHMARKS.md`](BENCHMARKS.md).
+> - **We take no responsibility** for the quality of this code or the truth
+>   of its claims — both are upstream's (`wasif-exe/wire`), preserved here
+>   so the evidence can't move. What *is* ours: the honest accounting, the
+>   ~1.7x faster executor drain, and the audit trail.
+> - **Our advice: never clone this repo at all** — neither upstream nor
+>   this fork — for anything touching money, production, or homework you
+>   want marked. If you clone it anyway, know exactly what it is: an
+>   ambitious HFT playground with documented, proven defects.
+> - **Corrections offered upstream:** PR
+>   [#2](https://github.com/wasif-exe/wire/pull/2) (honest accounting +
+>   faster executor) and PR
+>   [#3](https://github.com/wasif-exe/wire/pull/3) (classified fault
+>   report) — nose-shrinking measures included free of charge. 🐽
+
+---
+
 Wire v7 is an ultra-low-latency, zero-kernel-syscall financial exchange dataplane and market data processing engine written from scratch in Rust and C. Extending the Wire v1-v6 kernel bypass networking stack, Wire v7 incorporates LMAX Disruptor ring buffers over 1GB/2MB HugePages, AVX-512 vectorized Nasdaq ITCH 5.0 and FIX 4.4 protocol decoders, flat array-backed Limit Order Books (LOB), eBPF XDP in-kernel pre-trade risk filters, Intel DDIO cache-line allocation, and IEEE 1588 PTP hardware clock timestamping.
 
 ---
