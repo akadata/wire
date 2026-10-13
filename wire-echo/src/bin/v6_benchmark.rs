@@ -194,18 +194,12 @@ fn benchmark_wal_engines() -> (f64, f64, f64, f64) {
     (sync_mops, async_mops, async_bw_mb, avg_ns_overhead)
 }
 fn drain_batch(executor: &mut LocalExecutor, expected: usize) -> Option<usize> {
-    // Poll until exactly `expected` completions are observed.
-    // Returns None if the executor stalls (run_single_tick() == 0) first.
-    let mut batch_completed: usize = 0;
-    loop {
-        if batch_completed == expected {
-            return Some(batch_completed);
-        }
-        let n = executor.run_single_tick();
-        if n == 0 {
-            return None;
-        }
-        batch_completed += n;
+    // Single guarded drain; the count must match exactly or the run is invalid.
+    let n = executor.drain_all();
+    if n == expected {
+        Some(n)
+    } else {
+        None
     }
 }
 
