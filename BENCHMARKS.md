@@ -199,3 +199,57 @@ for everything else, know what the ~26 ns buys you.
 
 Methodology detail, raw tables, and sample outputs: `akadata-report/`.
 Standalone write-up with SVG graphs: `akadata-report/C_VS_RUST.md`.
+
+---
+
+## 7. SIMD audit: what "AVX-512 / AVX2 Enabled" actually means here
+
+The author claims, under "Hardware Test Bench Context":
+
+> CPU Host: x86_64 Architecture (AVX-512 / AVX2 Enabled)
+
+On Homer that claim is half false, and the code behind the true half is
+thinner than the labels suggest. All of the following was read out of the
+shipped source and measured on Homer (i9-13900K — AVX2 on all 32 CPUs, **no
+`avx512*` flag anywhere** in `/proc/cpuinfo`).
+
+**AVX-512: claimed, compiled in, never executed — and not vectorized.**
+Both v6 AVX-512 dashboard rows print `N/A / Host CPU (AVX2 Active)` on
+Homer, because the CPU lacks `avx512f` and the dispatch gates
+(`wire-echo/src/bin/v6_benchmark.rs:104`, `wire-simd/src/lib.rs:46`)
+correctly refuse to call it. The code ships (21 `zmm` register mentions in
+`target/release/v6_benchmark`), but on this machine every AVX-512 number in
+the author's tables has no Homer measurement behind it whatsoever.
+And the functions themselves are not vector parsers:
+`wire-simd/src/avx512.rs:13-15` performs exactly one `_mm512_loadu_si512`
+plus one `_mm512_storeu_si512` into a stack buffer, followed by ~160 lines
+of scalar byte indexing (`buf[12]`, `u16::from_be_bytes`, …) — a 64-byte
+`memcpy` with scalar parsing, zero vector ALU. Same pattern in the "AVX-512
+ITCH decoder" (`wire-exchange/src/itch.rs:235-237`: load, store, then
+scalar field extraction — and on Homer v7 necessarily takes the AVX2 or
+scalar path instead). Further defects in the same function: the
+`#[target_feature]` attribute demands `avx512bw+avx512dq+avx512vl`
+(`avx512.rs:6`) while the runtime gate checks only `avx512f`; the IPv6
+source/destination addresses are sliced from the middle of the 16-byte
+address (`avx512.rs:99-100`).
+
+**AVX2: genuinely executed — and ~4x slower than the scalar fallback.**
+`is_x86_feature_detected!("avx2")` is true, the benchmark calls
+`parse_one_avx2` directly (`v6_benchmark.rs:89`), and the binary contains
+real VEX code (`vpshufb` ×169). But "vectorized" here means one
+`_mm256_loadu_si256`, one `_mm256_shuffle_epi8`, scalar field parsing, and
+a scalar checksum loop — while the `_mm256_extract_*_unwrap` helpers
+(`wire-simd/src/avx2.rs:115-125`) are full-register stores to the stack
+followed by scalar array reads, i.e. store-forwarding roundtrips rather
+than extracts. Homer measured the outcome
+(`akadata-report/samples/v6_normal_sample.txt`):
+
+```text
+ Scalar Fallback Parser         228.91 Mpps    13.11 cycles / packet
+ AVX2 Vector Parser (256-bit)    57.99 Mpps    51.73 cycles / packet
+```
+
+The "vector" path costs ~4x the fallback it claims to accelerate — on the
+author's own harness, on our machine. "AVX2 used" is true; "AVX2 faster" is
+measured false here, and every AVX-512 rate in the author's tables is
+unverifiable on AVX2-only silicon by construction.

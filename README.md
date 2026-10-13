@@ -107,6 +107,10 @@ load — that is what keeps a ~1.7x claim credible on a machine like this.
 A pure-C port of the same dispatch loop (`c-executor/`, `BENCHMARKS.md` §6)
 does ~81.8 Mops/s vs Rust's ~25.9 — the ~26 ns/task gap is the measured
 price of the async abstraction, and it vanishes into any real task body.
+SIMD audit (`BENCHMARKS.md` §7): Homer has AVX2 but no AVX-512, so the
+author's AVX-512 rows print N/A here — and the shipped "vector" parsers are
+largely load/store plus scalar field parsing (the AVX2 path measured ~4x
+*slower* than the scalar fallback on this CPU).
 
 ---
 
