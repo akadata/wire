@@ -198,3 +198,4 @@ the tool with eyes open: for sub-100 ns dispatch loops, C still rules;
 for everything else, know what the ~26 ns buys you.
 
 Methodology detail, raw tables, and sample outputs: `akadata-report/`.
+Standalone write-up with SVG graphs: `akadata-report/C_VS_RUST.md`.
