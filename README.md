@@ -111,6 +111,9 @@ SIMD audit (`BENCHMARKS.md` §7): Homer has AVX2 but no AVX-512, so the
 author's AVX-512 rows print N/A here — and the shipped "vector" parsers are
 largely load/store plus scalar field parsing (the AVX2 path measured ~4x
 *slower* than the scalar fallback on this CPU).
+Financial-fitness fault report (read-only audit, no code changed):
+`akadata-report/FAULT_REPORT.md` — risk filter, order book, parsers,
+sequencing, and WAL findings with severity ratings.
 
 ---
 
