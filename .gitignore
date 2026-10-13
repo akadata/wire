@@ -4,3 +4,5 @@
 *.so
 *.out
 .DS_Store
+/c-executor/task_bench_o3
+/c-executor/task_bench_native
