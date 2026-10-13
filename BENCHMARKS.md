@@ -158,4 +158,43 @@ on a machine like this.
 - Homer numbers are Homer numbers (i9-13900K, rustc 1.99). The claim is the
   *ratio* under identical conditions, not a universal constant.
 
+---
+
+## 6. Pure-C port: pricing the abstraction (`c-executor/`)
+
+Same architecture in C99-or-so C17 — 4096 slots, free-list stack, circular
+run queue, heap-allocated task objects, indirect dispatch call, 1M no-op
+tasks in batches of 1024, identical fail-closed `EXECUTOR` contract
+(`c-executor/task_bench.c`, built with plain `make`). Dispatch verified
+real: an instrumented scratch build fired exactly 1,000,000 callbacks
+(no dead-code elimination).
+
+```text
+ gcc -O3             81.80 Mops/s mean (79.74–83.89)  | 12.23 ns/task
+ gcc -O3 -march=native  79.03 Mops/s mean (73.62–85.58)  | 12.70 ns/task
+ improved Rust (v6)  25.90 Mops/s mean                | 38.70 ns/task
+
+ Rust ─▶ |██████████████████████████  25.90
+ C    ─▶ |██████████████████████████████████████████████████████████████████████████████████  81.80
+```
+
+So yes, on this workload: **lean C dispatches empty tasks ~3.2x faster
+than the improved Rust executor.** `-march=native` buys C nothing here
+(slightly worse median, more variance) — there is nothing to vectorize,
+same lesson as §3. Raw table: `akadata-report/perf_c.csv`.
+
+What this does and doesn't prove. The C port deliberately lacks futures,
+wakers, the Pending path, the thread-local guard, and the io_uring submit —
+the asymmetries are listed in the source header. The ~26 ns/task gap is
+*constant framework overhead per dispatch*, and constant overheads vanish
+into real work: for illustration, a task body costing 1 µs would show
+~1012 ns in C vs ~1039 ns in Rust — under 3% apart. The honest headline is
+narrower than "C beats Rust": Rust's async machinery (waker construction,
+`Context`, dynamic dispatch, queue bookkeeping, pin guarantees, wake
+handling) costs roughly two dozen nanoseconds per empty task versus a bare
+function-pointer loop — while buying memory safety, a real Pending/wake
+model, and fearless refactoring that the C loop simply doesn't have. Pick
+the tool with eyes open: for sub-100 ns dispatch loops, C still rules;
+for everything else, know what the ~26 ns buys you.
+
 Methodology detail, raw tables, and sample outputs: `akadata-report/`.

@@ -104,6 +104,9 @@ VM we never touched). Hugepages: requested 1024 → granted 57; after VMs
 stopped, requested 4096 → granted 324 (fragmentation ceiling, no OOM risk
 taken). Every baseline-vs-improved pair ran back-to-back under the same
 load — that is what keeps a ~1.7x claim credible on a machine like this.
+A pure-C port of the same dispatch loop (`c-executor/`, `BENCHMARKS.md` §6)
+does ~81.8 Mops/s vs Rust's ~25.9 — the ~26 ns/task gap is the measured
+price of the async abstraction, and it vanishes into any real task body.
 
 ---
 
@@ -298,6 +301,4 @@ cargo run --release -p wire-sim
 ## License
 
 Licensed under the [MIT License](https://www.google.com/search?q=LICENSE).
-
-```
 
