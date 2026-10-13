@@ -253,5 +253,19 @@ cargo run --release -p wire-sim
 
 Licensed under the [MIT License](https://www.google.com/search?q=LICENSE).
 
-```
+---
+
+## AKADATA audit reports (read-only findings, no code changed)
+
+- [`akadata-report/FAULT_REPORT.md`](akadata-report/FAULT_REPORT.md) —
+  financial-fitness review: risk filter, order book, parsers, sequencing
+  and WAL findings, each classified as proven correctness defect,
+  reproducibility/claim defect, missing safeguard, or corrected finding —
+  plus a nose-shrinking statement of facts. 🐽
+- [`akadata-report/SIMD_AUDIT.md`](akadata-report/SIMD_AUDIT.md) — SIMD
+  implementation and reproducibility audit (AVX2 executed but ~4x slower
+  than scalar here; AVX-512 N/A on AVX2-only silicon).
+- Companion benchmark evidence lives on branch
+  `akadata/executor-performance` (see PR #2): honest executor accounting,
+  ~1.7x faster drain, C port, and per-run CSVs.
 
